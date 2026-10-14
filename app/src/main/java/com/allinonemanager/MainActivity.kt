@@ -9,9 +9,15 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Scaffold
 import androidx.compose.ui.Modifier
 import androidx.core.view.WindowCompat
+import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import androidx.navigation.navArgument
+import com.allinonemanager.ui.cc.screens.AddCreditCard
+import com.allinonemanager.ui.cc.screens.AddDueDetails
+import com.allinonemanager.ui.cc.screens.CreditCardDetails
+import com.allinonemanager.ui.cc.screens.CreditCardHome
 import com.allinonemanager.ui.home.screens.Home
 import com.allinonemanager.ui.theme.AllinOneManagerTheme
 import com.allinonemanager.ui.user.screens.LoginScreen
@@ -88,6 +94,70 @@ class MainActivity : ComponentActivity() {
                                 onAccountClick = { /* navigate to profile later */ }
                             )
                         }
+                        composable("credit_card") {
+                            CreditCardHome(
+                                onLogoutClick = {
+                                    navController.navigate("login") {
+                                        popUpTo("home") { inclusive = true }
+                                    }
+                                },
+                                onAccountClick = { /* navigate to profile later */ },
+                                onAddCreditCardClick = { navController.navigate("add_credit_card") },
+                                onAddDueDetailsClick = { navController.navigate("add_due_details")},
+                                onHomeClick = {navController.navigate("home")},
+                                onBackClick = {navController.popBackStack()},
+                                onRowClick = { index, row ->
+                                    val ccNumber = row[0]   // first column is the credit card number
+                                    navController.navigate("credit_card_details/$ccNumber")
+                                }
+                            )
+                        }
+
+                        composable("add_credit_card") {
+                            AddCreditCard(
+                                onLogoutClick = {
+                                    navController.navigate("login") {
+                                        popUpTo("home") { inclusive = true }
+                                    }
+                                },
+                                onAccountClick = { /* navigate to profile later */ },
+                                onHomeClick = {navController.navigate("home")},
+                                onBackClick = {navController.popBackStack()}
+                            )
+                        }
+
+                        composable("add_due_details") {
+                            AddDueDetails(
+                                onLogoutClick = {
+                                    navController.navigate("login") {
+                                        popUpTo("home") { inclusive = true }
+                                    }
+                                },
+                                onAccountClick = { /* navigate to profile later */ },
+                                onHomeClick = {navController.navigate("home")},
+                                onBackClick = {navController.popBackStack()}
+                            )
+                        }
+
+                        composable(
+                            route = "credit_card_details/{ccNumber}",
+                            arguments = listOf(navArgument("ccNumber") { type = NavType.StringType })
+                        ) { backStackEntry ->
+                            val ccNumber = backStackEntry.arguments?.getString("ccNumber") ?: ""
+
+                            CreditCardDetails(
+                                ccNumber = ccNumber,
+                                onLogoutClick = {
+                                    navController.navigate("login") {
+                                        popUpTo(0) { inclusive = true }
+                                    }
+                                },
+                                onAccountClick = { /* navigate to profile later */ },
+                                onHomeClick = { navController.navigate("home") },
+                                onBackClick = { navController.popBackStack() }
+                            )
+                        }
+
                     }
                 }
             }
