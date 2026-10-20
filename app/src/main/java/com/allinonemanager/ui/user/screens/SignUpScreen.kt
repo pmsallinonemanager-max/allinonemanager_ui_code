@@ -34,6 +34,7 @@ import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -55,6 +56,7 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.allinonemanager.ui.user.screens.dto.SignUpRequest
 
 private val FigmaYellow3 = Color(0xFFFFC200)
 private val TextGray3 = Color(0xFF716F6F)
@@ -65,8 +67,10 @@ private val BorderGray3 = Color(0xFFD0CBCB)
 @Composable
 @Preview(showBackground = true)
 fun SignUpScreen(
-    onSignUpClick: (fullName: String, email: String, mobile: String, password: String, confirmPassword: String) -> Unit = { _, _, _, _, _ -> },
+    onSignUpClick: (SignUpRequest) -> Unit = {},
     onLoginClick: () -> Unit = {},
+    isLoading: Boolean = false,
+    serverError: String? = null,
     modifier: Modifier = Modifier
 ) {
     var fullName by remember { mutableStateOf("") }
@@ -76,6 +80,7 @@ fun SignUpScreen(
     var confirmPassword by remember { mutableStateOf("") }
     var passwordVisible by remember { mutableStateOf(false) }
     var confirmPasswordVisible by remember { mutableStateOf(false) }
+    var errorMessage by remember { mutableStateOf<String?>(null) }
 
     Column(
         modifier = modifier
@@ -95,6 +100,7 @@ fun SignUpScreen(
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Box(
                     modifier = Modifier
+                        .padding(top = 10.dp)
                         .size(80.dp)
                         .background(Color.White, shape = CircleShape),
                     contentAlignment = Alignment.Center
@@ -208,16 +214,45 @@ fun SignUpScreen(
                 }
             )
 
+            (errorMessage ?: serverError)?.let {
+                Spacer(modifier = Modifier.height(12.dp))
+                Text(it, color = Color.Red, fontSize = 14.sp)
+            }
+
             Spacer(modifier = Modifier.height(32.dp))
 
             // SIGNUP button
             Button(
-                onClick = { onSignUpClick(fullName, email, mobileNumber, password, confirmPassword) },
-                colors = ButtonDefaults.buttonColors(containerColor = FigmaYellow3),
+                onClick = {
+                    errorMessage = validateSignUp(fullName, email, mobileNumber, password, confirmPassword)
+                    if (errorMessage == null) {
+                        onSignUpClick(
+                            SignUpRequest(
+                                fullName = fullName.trim(),
+                                mobile = mobileNumber.trim(),
+                                email = email.trim(),
+                                password = password
+                            )
+                        )
+                    }
+                },
+                enabled = !isLoading,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = FigmaYellow3,
+                    disabledContainerColor = FigmaYellow3.copy(alpha = 0.6f)
+                ),
                 shape = RoundedCornerShape(24.dp),
                 modifier = Modifier.align(Alignment.CenterHorizontally).width(186.dp).height(48.dp)
             ) {
-                Text("SIGNUP", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                if (isLoading) {
+                    CircularProgressIndicator(
+                        color = Color.White,
+                        strokeWidth = 2.dp,
+                        modifier = Modifier.size(24.dp)
+                    )
+                } else {
+                    Text("SIGNUP", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                }
             }
 
             Spacer(modifier = Modifier.height(20.dp))
@@ -238,6 +273,23 @@ fun SignUpScreen(
             }
         }
     }
+}
+
+// Returns an error message, or null if all fields are valid.
+// confirmPassword is checked here only; it is not sent to the backend.
+private fun validateSignUp(
+    fullName: String,
+    email: String,
+    mobile: String,
+    password: String,
+    confirmPassword: String
+): String? = when {
+    fullName.isBlank() -> "Full name cannot be blank"
+    mobile.trim().length != 10 || !mobile.trim().all { it.isDigit() } -> "Enter a valid 10-digit mobile number"
+    email.isBlank() || !email.contains("@") -> "Enter a valid email address"
+    password.isBlank() -> "Password cannot be blank"
+    password != confirmPassword -> "Passwords do not match"
+    else -> null
 }
 
 @OptIn(ExperimentalMaterial3Api::class)

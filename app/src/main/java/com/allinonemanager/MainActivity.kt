@@ -1,13 +1,19 @@
 package com.allinonemanager
 
 import android.os.Bundle
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Scaffold
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.core.view.WindowCompat
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
@@ -24,6 +30,10 @@ import com.allinonemanager.ui.user.screens.LoginScreen
 import com.allinonemanager.ui.user.screens.OtpLoginScreen
 import com.allinonemanager.ui.user.screens.SignUpScreen
 import com.allinonemanager.ui.user.screens.White
+import com.allinonemanager.ui.user.viewmodel.LoginUiState
+import com.allinonemanager.ui.user.viewmodel.LoginViewModel
+import com.allinonemanager.ui.user.viewmodel.SignUpUiState
+import com.allinonemanager.ui.user.viewmodel.SignUpViewModel
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -53,14 +63,24 @@ class MainActivity : ComponentActivity() {
                         modifier = Modifier.fillMaxSize()
                     ) {
                         composable("login") {
-                            LoginScreen(
-                                onLoginClick = { _, _ ->
+                            val loginViewModel: LoginViewModel = viewModel()
+                            val loginState by loginViewModel.uiState.collectAsState()
+
+                            LaunchedEffect(loginState) {
+                                if (loginState is LoginUiState.Success) {
+                                    loginViewModel.resetState()
                                     navController.navigate("home") {
                                         popUpTo("login") { inclusive = true }
                                     }
-                                },
+                                }
+                            }
+
+                            LoginScreen(
+                                onLoginClick = { request -> loginViewModel.login(request) },
                                 onOtpLoginClick = { navController.navigate("otp_login") },
-                                onSignUpClick = { navController.navigate("signup") }
+                                onSignUpClick = { navController.navigate("signup") },
+                                isLoading = loginState is LoginUiState.Loading,
+                                serverError = (loginState as? LoginUiState.Error)?.message
                             )
                         }
                         composable("otp_login") {
@@ -76,11 +96,24 @@ class MainActivity : ComponentActivity() {
                             )
                         }
                         composable("signup") {
+                            val signUpViewModel: SignUpViewModel = viewModel()
+                            val signUpState by signUpViewModel.uiState.collectAsState()
+                            val context = LocalContext.current
+
+                            LaunchedEffect(signUpState) {
+                                val state = signUpState
+                                if (state is SignUpUiState.Success) {
+                                    Toast.makeText(context, state.message, Toast.LENGTH_SHORT).show()
+                                    signUpViewModel.resetState()
+                                    navController.popBackStack("login", inclusive = false)
+                                }
+                            }
+
                             SignUpScreen(
-                                onSignUpClick = { fullName, email, mobile, password, confirmPassword ->
-                                    // TODO: validate & save user, then navigate to dashboard
-                                },
-                                onLoginClick = { navController.popBackStack() }
+                                onSignUpClick = { request -> signUpViewModel.signUp(request) },
+                                onLoginClick = { navController.popBackStack() },
+                                isLoading = signUpState is SignUpUiState.Loading,
+                                serverError = (signUpState as? SignUpUiState.Error)?.message
                             )
                         }
                         composable("home") {
