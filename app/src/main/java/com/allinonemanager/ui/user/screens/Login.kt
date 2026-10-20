@@ -21,6 +21,7 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.allinonemanager.ui.user.screens.dto.LoginRequest
 
 // Colors matched from the Figma export
 val FigmaYellow = Color(0xFFFFC200)
@@ -30,18 +31,23 @@ val White = Color(0xFFFFFFFF)
 
 val Black = Color(0xFF000000)
 
+private const val OTP_LOGIN_ENABLED = false
+
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 @Preview(showBackground = true)
 fun LoginScreen(
-    onLoginClick: (String, String) -> Unit = { _, _ -> },
+    onLoginClick: (LoginRequest) -> Unit = {},
     onSignUpClick: () -> Unit = {},
     onOtpLoginClick: () -> Unit = {},
+    isLoading: Boolean = false,
+    serverError: String? = null,
     modifier: Modifier = Modifier
 ) {
     var mobileNumber by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var passwordVisible by remember { mutableStateOf(false) }
+    var errorMessage by remember { mutableStateOf<String?>(null) }
 
     Column(
         modifier = modifier
@@ -161,30 +167,54 @@ fun LoginScreen(
 
             Spacer(modifier = Modifier.height(12.dp))
 
-            // Login with OTP link
-            Text(
-                text = "Login with OTP",
-                fontSize = 15.sp,
-                color = OtpBlue,
-                fontWeight = FontWeight.Medium,
-                modifier = Modifier
-                    .align(Alignment.End)
-                    .clickable { onOtpLoginClick() }
-            )
+            // Login with OTP link (hidden until OTP login is ready, flip OTP_LOGIN_ENABLED to show it)
+            if (OTP_LOGIN_ENABLED) {
+                Text(
+                    text = "Login with OTP",
+                    fontSize = 15.sp,
+                    color = OtpBlue,
+                    fontWeight = FontWeight.Medium,
+                    modifier = Modifier
+                        .align(Alignment.End)
+                        .clickable { onOtpLoginClick() }
+                )
+            }
+
+            (errorMessage ?: serverError)?.let {
+                Spacer(modifier = Modifier.height(12.dp))
+                Text(it, color = Color.Red, fontSize = 14.sp)
+            }
 
             Spacer(modifier = Modifier.height(78.dp))
 
             // LOGIN button
             Button(
-                onClick = { onLoginClick(mobileNumber, password) },
-                colors = ButtonDefaults.buttonColors(containerColor = FigmaYellow),
+                onClick = {
+                    errorMessage = validateLogin(mobileNumber, password)
+                    if (errorMessage == null) {
+                        onLoginClick(LoginRequest(mobile = mobileNumber.trim(), password = password))
+                    }
+                },
+                enabled = !isLoading,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = FigmaYellow,
+                    disabledContainerColor = FigmaYellow.copy(alpha = 0.6f)
+                ),
                 shape = RoundedCornerShape(24.dp),
                 modifier = Modifier
                     .align(Alignment.CenterHorizontally)
                     .width(146.dp)
                     .height(48.dp)
             ) {
-                Text("LOGIN", color = White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                if (isLoading) {
+                    CircularProgressIndicator(
+                        color = White,
+                        strokeWidth = 2.dp,
+                        modifier = Modifier.size(24.dp)
+                    )
+                } else {
+                    Text("LOGIN", color = White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                }
             }
 
             Spacer(modifier = Modifier.height(20.dp))
@@ -203,4 +233,11 @@ fun LoginScreen(
             }
         }
     }
+}
+
+// Returns an error message, or null if both fields are valid.
+private fun validateLogin(mobile: String, password: String): String? = when {
+    mobile.trim().length != 10 || !mobile.trim().all { it.isDigit() } -> "Enter a valid 10-digit mobile number"
+    password.isBlank() -> "Password cannot be blank"
+    else -> null
 }
