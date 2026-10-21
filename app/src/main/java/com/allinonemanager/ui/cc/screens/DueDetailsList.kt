@@ -1,7 +1,20 @@
 package com.allinonemanager.ui.cc.screens
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.width
+import androidx.compose.material.icons.automirrored.filled.Undo
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.VisualTransformation
+import com.allinonemanager.ui.cc.screens.dto.UpdateDueDetailsRequest
+import com.allinonemanager.ui.util.CompactTextField
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -11,16 +24,15 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Home
@@ -54,7 +66,10 @@ import androidx.compose.ui.unit.sp
 import com.allinonemanager.ui.cc.screens.dto.DueDetail
 import com.allinonemanager.ui.user.screens.Black
 import com.allinonemanager.ui.user.screens.HintGray
+import com.allinonemanager.ui.util.BOTTOM_BAR_HEIGHT
+import com.allinonemanager.ui.util.HomeBackButtons
 import com.allinonemanager.ui.util.TopWaveShape
+import com.allinonemanager.ui.util.readableDate
 import java.text.NumberFormat
 import java.text.SimpleDateFormat
 import java.util.Calendar
@@ -76,6 +91,13 @@ fun DueDetailsList(
     errorMessage: String? = null,
     // false when opened for one card from Credit Card Details
     showCardFilter: Boolean = true,
+    onSaveDue: (UpdateDueDetailsRequest) -> Unit = {},
+    onPaidChange: (ccDueId: Int, isPaid: Boolean) -> Unit = { _, _ -> },
+    isSaving: Boolean = false,
+    saveError: String? = null,
+    // Due shown as an edit form; null = none. onEditDue(null) cancels.
+    editingDueId: Int? = null,
+    onEditDue: (Int?) -> Unit = {},
     onHomeClick: () -> Unit = {},
     onLogoutClick: () -> Unit = {},
     onAccountClick: () -> Unit = {},
@@ -153,6 +175,8 @@ fun DueDetailsList(
                     .weight(1f)
                     .fillMaxWidth()
                     .navigationBarsPadding()
+                    .padding(bottom = BOTTOM_BAR_HEIGHT)     // scroll area stops above Home/Back
+                    .imePadding()       // before verticalScroll, so the due being edited scrolls above the keyboard
                     .verticalScroll(rememberScrollState()),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
@@ -285,61 +309,50 @@ fun DueDetailsList(
                     }
 
                     shown.forEach { due ->
-                        DueItem(due)
+                        if (due.ccDueId != null && due.ccDueId == editingDueId) {
+                            DueEditItem(
+                                due = due,
+                                onSave = onSaveDue,
+                                onCancel = { onEditDue(null) },
+                                isSaving = isSaving,
+                                serverError = saveError
+                            )
+                        } else {
+                            DueItem(
+                                due = due,
+                                onEdit = { onEditDue(due.ccDueId) },
+                                onPaidChange = { isPaid -> due.ccDueId?.let { onPaidChange(it, isPaid) } },
+                                isSaving = isSaving
+                            )
+                        }
                         Spacer(modifier = Modifier.height(12.dp))
                     }
+                    // Mark as paid has no form, so its error is shown here
+                    if (editingDueId == null) saveError?.let {
+                        Text(it, color = Color.Red, fontSize = 14.sp, modifier = Modifier.padding(bottom = 12.dp))
+                    }
 
-                    // Space so the last item can scroll above the Home/Back buttons
-                    Spacer(modifier = Modifier.height(100.dp))
+                    Spacer(modifier = Modifier.height(16.dp))
                 }
             }
         }
 
-        // ---------- Home / Back, bottom left ----------
-        Row(
-            modifier = Modifier
-                .align(Alignment.BottomStart)
-                .navigationBarsPadding()
-                .padding(start = 10.dp, bottom = 16.dp),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(60.dp)
-                    .background(FigmaYellow4, shape = CircleShape),
-                contentAlignment = Alignment.Center
-            ) {
-                IconButton(onClick = onHomeClick) {
-                    Icon(
-                        imageVector = Icons.Default.Home,
-                        contentDescription = "Home",
-                        tint = Color.White,
-                        modifier = Modifier.size(32.dp)
-                    )
-                }
-            }
-            Box(
-                modifier = Modifier
-                    .size(60.dp)
-                    .background(FigmaYellow4, shape = CircleShape),
-                contentAlignment = Alignment.Center
-            ) {
-                IconButton(onClick = onBackClick) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                        contentDescription = "Back",
-                        tint = Color.White,
-                        modifier = Modifier.size(32.dp)
-                    )
-                }
-            }
-        }
+        HomeBackButtons(
+            onHomeClick = onHomeClick,
+            onBackClick = onBackClick,
+            modifier = Modifier.align(Alignment.BottomStart)
+        )
     }
 }
 
 @Composable
-private fun DueItem(due: DueDetail) {
+private fun DueItem(
+    due: DueDetail,
+    onEdit: () -> Unit,
+    onPaidChange: (isPaid: Boolean) -> Unit,
+    isSaving: Boolean
+) {
+    val isPaid = due.isPaid == true
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -367,7 +380,7 @@ private fun DueItem(due: DueDetail) {
         Spacer(modifier = Modifier.height(6.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
-                text = "Due: ${due.dueDate.orEmpty()}",
+                text = "Due: ${readableDate(due.dueDate)}",
                 fontSize = 14.sp,
                 fontWeight = FontWeight.Bold,
                 color = Black,
@@ -381,11 +394,194 @@ private fun DueItem(due: DueDetail) {
         AmountRow("Total Outstanding", due.totalOutstanding)
         Spacer(modifier = Modifier.height(6.dp))
         Text(
-            text = "Statement: ${due.statementDate.orEmpty()}",
+            text = "Statement: ${readableDate(due.statementDate)}",
             fontSize = 12.sp,
             color = HintGray
         )
+        Spacer(modifier = Modifier.height(10.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            OutlinedButton(
+                onClick = onEdit,
+                enabled = !isSaving,
+                border = BorderStroke(1.5.dp, FigmaYellow4),
+                contentPadding = PaddingValues(horizontal = 12.dp),
+                modifier = Modifier.weight(1f).height(38.dp)
+            ) {
+                Icon(Icons.Default.Edit, contentDescription = null, tint = FigmaYellow4, modifier = Modifier.size(16.dp))
+                Spacer(modifier = Modifier.width(6.dp))
+                Text("Edit", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = FigmaYellow4)
+            }
+            // Paid -> grey "Mark Unpaid" in case it was tapped by mistake
+            Button(
+                onClick = { onPaidChange(!isPaid) },
+                enabled = !isSaving,
+                colors = ButtonDefaults.buttonColors(containerColor = if (isPaid) Color.Gray else OkGreen),
+                contentPadding = PaddingValues(horizontal = 12.dp),
+                modifier = Modifier.weight(1f).height(38.dp)
+            ) {
+                Icon(
+                    imageVector = if (isPaid) Icons.AutoMirrored.Filled.Undo else Icons.Default.Check,
+                    contentDescription = null,
+                    tint = Color.White,
+                    modifier = Modifier.size(16.dp)
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(
+                    text = if (isPaid) "Mark Unpaid" else "Mark as Paid",
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White,
+                    maxLines = 1
+                )
+            }
+        }
     }
+}
+
+/** The due's fields as an edit form, in place of its card in the list. */
+@Composable
+private fun DueEditItem(
+    due: DueDetail,
+    onSave: (UpdateDueDetailsRequest) -> Unit,
+    onCancel: () -> Unit,
+    isSaving: Boolean,
+    serverError: String?
+) {
+    // Dates are typed as 8 digits (yyyyMMdd), like on Add Due Details
+    var stmtDate by remember(due) { mutableStateOf(due.statementDate.orEmpty().filter { it.isDigit() }) }
+    var dueDate by remember(due) { mutableStateOf(due.dueDate.orEmpty().filter { it.isDigit() }) }
+    var dueAmt by remember(due) { mutableStateOf(amountText(due.dueAmt)) }
+    var minimumDue by remember(due) { mutableStateOf(amountText(due.minimumDue)) }
+    var totalOutstanding by remember(due) { mutableStateOf(amountText(due.totalOutstanding)) }
+    var errorMessage by remember(due) { mutableStateOf<String?>(null) }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .border(1.5.dp, FigmaYellow4, RoundedCornerShape(16.dp))
+            .padding(horizontal = 16.dp, vertical = 12.dp)
+    ) {
+        Text(
+            text = "Edit · ${due.cardLabel}",
+            fontSize = 15.sp,
+            fontWeight = FontWeight.ExtraBold,
+            color = Black,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+        Spacer(modifier = Modifier.height(10.dp))
+        EditFieldRow(
+            "Statement Date", stmtDate, { stmtDate = it.filter(Char::isDigit).take(8) }, "YYYY-MM-DD", DateVisualTransformation(),
+            "Due Date", dueDate, { dueDate = it.filter(Char::isDigit).take(8) }, "YYYY-MM-DD", DateVisualTransformation()
+        )
+        Spacer(modifier = Modifier.height(10.dp))
+        EditFieldRow(
+            "Due Amount", dueAmt, { dueAmt = amountInput(it) }, "₹ 0.00", VisualTransformation.None,
+            "Minimum Due", minimumDue, { minimumDue = amountInput(it) }, "₹ 0.00", VisualTransformation.None
+        )
+        Spacer(modifier = Modifier.height(10.dp))
+        EditFieldLabel("Total Outstanding")
+        CompactTextField(
+            value = totalOutstanding,
+            onValueChange = { totalOutstanding = amountInput(it) },
+            placeholder = "₹ 0.00",
+            keyboardType = KeyboardType.Number,
+            modifier = Modifier.fillMaxWidth(0.5f)
+        )
+
+        (errorMessage ?: serverError)?.let {
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(it, color = Color.Red, fontSize = 13.sp)
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Button(
+                onClick = {
+                    errorMessage = when {
+                        !isValidDate(stmtDate) -> "Enter a valid statement date (yyyy-mm-dd)"
+                        !isValidDate(dueDate) -> "Enter a valid due date (yyyy-mm-dd)"
+                        dueAmt.toDoubleOrNull() == null -> "Enter the due amount"
+                        minimumDue.toDoubleOrNull() == null -> "Enter the minimum due"
+                        totalOutstanding.toDoubleOrNull() == null -> "Enter the total outstanding"
+                        due.ccDueId == null || due.ccId == null -> "This due cannot be edited"
+                        else -> null
+                    }
+                    if (errorMessage == null) {
+                        onSave(
+                            UpdateDueDetailsRequest(
+                                ccDueId = due.ccDueId!!,
+                                ccId = due.ccId!!,
+                                dueAmt = dueAmt.toDouble(),
+                                minimumDue = minimumDue.toDouble(),
+                                totalOutstanding = totalOutstanding.toDouble(),
+                                statementDate = formatDate(stmtDate),
+                                dueDate = formatDate(dueDate)
+                            )
+                        )
+                    }
+                },
+                enabled = !isSaving,
+                colors = ButtonDefaults.buttonColors(containerColor = FigmaYellow4),
+                contentPadding = PaddingValues(horizontal = 12.dp),
+                modifier = Modifier.weight(1f).height(38.dp)
+            ) {
+                Text(if (isSaving) "Saving..." else "Save", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Color.White)
+            }
+            OutlinedButton(
+                onClick = onCancel,
+                enabled = !isSaving,
+                contentPadding = PaddingValues(horizontal = 12.dp),
+                modifier = Modifier.weight(1f).height(38.dp)
+            ) {
+                Text("Cancel", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Color.Gray)
+            }
+        }
+    }
+}
+
+// Two labelled fields side by side, each half the width
+@Composable
+private fun EditFieldRow(
+    leftLabel: String, leftValue: String, onLeftChange: (String) -> Unit, leftHint: String, leftTransform: VisualTransformation,
+    rightLabel: String, rightValue: String, onRightChange: (String) -> Unit, rightHint: String, rightTransform: VisualTransformation
+) {
+    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        Column(modifier = Modifier.weight(1f)) {
+            EditFieldLabel(leftLabel)
+            CompactTextField(
+                value = leftValue, onValueChange = onLeftChange, placeholder = leftHint,
+                keyboardType = KeyboardType.Number, visualTransformation = leftTransform,
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
+        Column(modifier = Modifier.weight(1f)) {
+            EditFieldLabel(rightLabel)
+            CompactTextField(
+                value = rightValue, onValueChange = onRightChange, placeholder = rightHint,
+                keyboardType = KeyboardType.Number, visualTransformation = rightTransform,
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
+    }
+}
+
+@Composable
+private fun EditFieldLabel(text: String) {
+    Text(
+        text = text,
+        fontSize = 12.sp,
+        fontWeight = FontWeight.Medium,
+        color = Color.Gray,
+        modifier = Modifier.padding(bottom = 3.dp)
+    )
+}
+
+// 12500.0 -> "12500", 12500.5 -> "12500.50", null -> ""
+private fun amountText(amount: Double?): String = when {
+    amount == null -> ""
+    amount % 1.0 == 0.0 -> amount.toLong().toString()
+    else -> String.format(Locale.US, "%.2f", amount)
 }
 
 @Composable

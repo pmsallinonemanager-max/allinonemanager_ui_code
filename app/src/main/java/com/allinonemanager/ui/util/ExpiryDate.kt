@@ -1,7 +1,6 @@
 package com.allinonemanager.ui.util
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
@@ -16,9 +15,7 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.padding
 import androidx.compose.ui.Alignment
@@ -36,13 +33,12 @@ fun ExpiryDate(
     modifier: Modifier = Modifier
 ) {
     val yearFocus = remember { FocusRequester() }
-    val pill = RoundedCornerShape(20.dp)
 
     Row(
         modifier = modifier
-            .size(width = 80.dp, height = 56.dp)
-            .background(Color.White, pill)
-            .border(1.dp, Color.Black, pill)
+            .size(width = 80.dp, height = FieldHeight)
+            .background(Color.White, FieldShape)
+            .border(1.dp, FieldBorder, FieldShape)
             .padding(horizontal = 6.dp),          // keeps MM / YY off the rounded edges
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -60,14 +56,7 @@ fun ExpiryDate(
             modifier = Modifier.weight(1f)
         )
 
-        // vertical divider
-        Box(
-            modifier = Modifier
-                .width(1.dp)
-                .fillMaxHeight()
-                .padding(vertical = 4.dp)
-                .background(Color.Black)
-        )
+        Text("/", color = Color.Gray, fontSize = 15.sp)
 
         ExpiryPart(
             value = year,

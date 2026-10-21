@@ -5,6 +5,8 @@ import com.allinonemanager.ui.cc.screens.dto.AddDueDetailsRequest
 import com.allinonemanager.ui.cc.screens.dto.CreditCard
 import com.allinonemanager.ui.cc.screens.dto.DueDetail
 import com.allinonemanager.ui.cc.screens.dto.UpdateCreditCardRequest
+import com.allinonemanager.ui.cc.screens.dto.UpdateDueDetailsRequest
+import com.allinonemanager.ui.cc.screens.dto.UpdateDueStatusRequest
 import okhttp3.ResponseBody
 import retrofit2.Response
 import retrofit2.http.Body
@@ -35,4 +37,10 @@ interface CreditCardApi {
     // Plain-text message like the add calls
     @PUT("credit-cards/update")
     suspend fun updateCreditCard(@Body request: UpdateCreditCardRequest): Response<ResponseBody>
+
+    @PUT("credit-cards/due/update")
+    suspend fun updateDueDetails(@Body request: UpdateDueDetailsRequest): Response<ResponseBody>
+
+    @PUT("credit-cards/due/status")
+    suspend fun updateDueStatus(@Body request: UpdateDueStatusRequest): Response<ResponseBody>
 }

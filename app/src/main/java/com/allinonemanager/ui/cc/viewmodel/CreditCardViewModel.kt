@@ -10,6 +10,8 @@ import com.allinonemanager.ui.cc.screens.dto.AddDueDetailsRequest
 import com.allinonemanager.ui.cc.screens.dto.CreditCard
 import com.allinonemanager.ui.cc.screens.dto.DueDetail
 import com.allinonemanager.ui.cc.screens.dto.UpdateCreditCardRequest
+import com.allinonemanager.ui.cc.screens.dto.UpdateDueDetailsRequest
+import com.allinonemanager.ui.cc.screens.dto.UpdateDueStatusRequest
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -120,6 +122,14 @@ class CreditCardViewModel(
         save({ it == DUE_ADDED }) { creditCardApi.addDueDetails(request) }
     }
 
+    fun updateDue(request: UpdateDueDetailsRequest) {
+        save({ it == DUE_UPDATED }) { creditCardApi.updateDueDetails(request) }
+    }
+
+    fun setDuePaid(ccDueId: Int, isPaid: Boolean) {
+        save({ it == DUE_STATUS_UPDATED }) { creditCardApi.updateDueStatus(UpdateDueStatusRequest(ccDueId, isPaid)) }
+    }
+
     fun resetSaveState() {
         _saveState.value = SaveUiState.Idle
     }
@@ -149,5 +159,7 @@ class CreditCardViewModel(
         const val NOT_LOGGED_IN = "Session expired. Please logout and login again."
         const val CARD_ADDED = "Credit card added successfully."
         const val DUE_ADDED = "Due details added successfully."
+        const val DUE_UPDATED = "Due details updated successfully."
+        const val DUE_STATUS_UPDATED = "Due status updated successfully."
     }
 }

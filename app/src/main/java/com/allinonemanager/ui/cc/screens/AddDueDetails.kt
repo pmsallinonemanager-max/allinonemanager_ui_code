@@ -17,12 +17,10 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Home
@@ -61,6 +59,8 @@ import com.allinonemanager.ui.cc.screens.dto.CreditCard
 import com.allinonemanager.ui.user.screens.Black
 import com.allinonemanager.ui.user.screens.HintGray
 import com.allinonemanager.ui.user.screens.White
+import com.allinonemanager.ui.util.BOTTOM_BAR_HEIGHT
+import com.allinonemanager.ui.util.HomeBackButtons
 import com.allinonemanager.ui.util.TopWaveShape
 import java.text.SimpleDateFormat
 import java.util.Locale
@@ -460,47 +460,11 @@ fun AddDueDetails(
 
         }
 
-        Row(
-            modifier = Modifier
-                .align(Alignment.BottomStart)
-                .navigationBarsPadding()
-                .padding(start = 10.dp, bottom = 16.dp),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Box(
-                modifier = Modifier
-                    .width(60.dp)
-                    .background(FigmaYellow4, shape = CircleShape)
-                    .height(60.dp)
-                    .padding(start = 10.dp, top = 10.dp, end = 10.dp, bottom = 10.dp)
-            ) {
-                IconButton(onClick = onHomeClick, modifier = Modifier.size(48.dp)) {
-                    Icon(
-                        imageVector = Icons.Default.Home,
-                        contentDescription = "Home",
-                        tint = Color.White,
-                        modifier = Modifier.size(36.dp)
-                    )
-                }
-            }
-            Box(
-                modifier = Modifier
-                    .width(60.dp)
-                    .background(FigmaYellow4, shape = CircleShape)
-                    .height(60.dp)
-                    .padding(start = 10.dp, top = 10.dp, end = 10.dp, bottom = 10.dp)
-            ) {
-                IconButton(onClick = onBackClick, modifier = Modifier.size(48.dp)) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                        contentDescription = "Back",
-                        tint = Color.White,
-                        modifier = Modifier.size(36.dp)
-                    )
-                }
-            }
-        }
+        HomeBackButtons(
+            onHomeClick = onHomeClick,
+            onBackClick = onBackClick,
+            modifier = Modifier.align(Alignment.BottomStart)
+        )
 
     }
 }
@@ -509,7 +473,7 @@ private fun cardLabel(card: CreditCard): String =
     listOfNotNull(card.ccName?.takeIf { it.isNotBlank() }, card.maskedNumber).joinToString(" ")
 
 // Digits with at most one decimal point and two decimals, e.g. "1234.50"
-private fun amountInput(input: String): String {
+internal fun amountInput(input: String): String {
     val cleaned = input.filter { it.isDigit() || it == '.' }
     val dot = cleaned.indexOf('.')
     if (dot < 0) return cleaned.take(10)
@@ -517,10 +481,10 @@ private fun amountInput(input: String): String {
 }
 
 // The date fields hold 8 digits (yyyyMMdd); this adds the dashes the backend expects
-private fun formatDate(digits: String): String =
+internal fun formatDate(digits: String): String =
     "${digits.take(4)}-${digits.substring(4, 6)}-${digits.substring(6, 8)}"
 
-private fun isValidDate(digits: String): Boolean {
+internal fun isValidDate(digits: String): Boolean {
     if (digits.length != 8) return false
     return runCatching {
         SimpleDateFormat("yyyyMMdd", Locale.US).apply { isLenient = false }.parse(digits)
@@ -546,7 +510,7 @@ private fun validateDue(
 }
 
 // Shows 20261020 as 2026-10-20 while typing
-private class DateVisualTransformation : VisualTransformation {
+internal class DateVisualTransformation : VisualTransformation {
     override fun filter(text: AnnotatedString): TransformedText {
         val digits = text.text.take(8)
         val formatted = buildString {
