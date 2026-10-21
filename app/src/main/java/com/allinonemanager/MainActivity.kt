@@ -11,6 +11,9 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -24,6 +27,12 @@ import com.allinonemanager.ui.cc.screens.AddCreditCard
 import com.allinonemanager.ui.cc.screens.AddDueDetails
 import com.allinonemanager.ui.cc.screens.CreditCardDetails
 import com.allinonemanager.ui.cc.screens.CreditCardHome
+import com.allinonemanager.ui.cc.screens.DueDetailsList
+import com.allinonemanager.ui.cc.viewmodel.CardsUiState
+import com.allinonemanager.ui.cc.viewmodel.CreditCardViewModel
+import com.allinonemanager.ui.cc.viewmodel.DuesUiState
+import com.allinonemanager.ui.cc.viewmodel.SaveUiState
+import com.allinonemanager.data.UserSession
 import com.allinonemanager.ui.home.screens.Home
 import com.allinonemanager.ui.theme.AllinOneManagerTheme
 import com.allinonemanager.ui.user.screens.LoginScreen
@@ -57,6 +66,17 @@ class MainActivity : ComponentActivity() {
                     containerColor = White
                 ) { innerPadding ->
                     val navController = rememberNavController()
+                    // Forget the user and clear the whole back stack so Back can't return to their screens
+                    val logout: () -> Unit = {
+                        UserSession.clear()
+                        navController.navigate("login") {
+                            popUpTo(0) { inclusive = true }
+                        }
+                    }
+                    // Go back to [route] if it is already in the history (so Back still works), otherwise open it
+                    val goBackTo: (String) -> Unit = { route ->
+                        if (!navController.popBackStack(route, inclusive = false)) navController.navigate(route)
+                    }
                     NavHost(
                         navController = navController,
                         startDestination = "login",
@@ -119,74 +139,186 @@ class MainActivity : ComponentActivity() {
                         composable("home") {
                             Home(
                                 onModuleClick = { route -> navController.navigate(route) },
-                                onLogoutClick = {
-                                    navController.navigate("login") {
-                                        popUpTo("home") { inclusive = true }
-                                    }
-                                },
+                                onLogoutClick = logout,
                                 onAccountClick = { /* navigate to profile later */ }
                             )
                         }
                         composable("credit_card") {
+                            val ccViewModel: CreditCardViewModel = viewModel()
+                            val cardsState by ccViewModel.cardsState.collectAsState()
+                            val duesState by ccViewModel.duesState.collectAsState()
+
+                            // Runs every time this screen is shown, so cards / dues changed on other screens appear
+                            LaunchedEffect(Unit) {
+                                ccViewModel.loadCards()
+                                ccViewModel.loadDues()      // for the Paid / Unpaid column
+                            }
+
                             CreditCardHome(
-                                onLogoutClick = {
-                                    navController.navigate("login") {
-                                        popUpTo("home") { inclusive = true }
-                                    }
-                                },
+                                onLogoutClick = logout,
                                 onAccountClick = { /* navigate to profile later */ },
                                 onAddCreditCardClick = { navController.navigate("add_credit_card") },
                                 onAddDueDetailsClick = { navController.navigate("add_due_details")},
-                                onHomeClick = {navController.navigate("home")},
+                                onDueDetailsClick = { navController.navigate("due_details") },
+                                onHomeClick = { goBackTo("home") },
                                 onBackClick = {navController.popBackStack()},
-                                onRowClick = { index, row ->
-                                    val ccNumber = row[0]   // first column is the credit card number
-                                    navController.navigate("credit_card_details/$ccNumber")
-                                }
+                                onCardClick = { card ->
+                                    card.ccId?.let { navController.navigate("credit_card_details/$it") }
+                                },
+                                cards = (cardsState as? CardsUiState.Loaded)?.cards.orEmpty(),
+                                dues = (duesState as? DuesUiState.Loaded)?.dues.orEmpty(),
+                                isLoading = cardsState is CardsUiState.Loading,
+                                errorMessage = (cardsState as? CardsUiState.Error)?.message
                             )
                         }
 
                         composable("add_credit_card") {
+                            val ccViewModel: CreditCardViewModel = viewModel()
+                            val saveState by ccViewModel.saveState.collectAsState()
+                            val context = LocalContext.current
+
+                            LaunchedEffect(saveState) {
+                                val state = saveState
+                                if (state is SaveUiState.Success) {
+                                    Toast.makeText(context, state.message, Toast.LENGTH_SHORT).show()
+                                    ccViewModel.resetSaveState()
+                                    navController.popBackStack()
+                                }
+                            }
+
                             AddCreditCard(
-                                onLogoutClick = {
-                                    navController.navigate("login") {
-                                        popUpTo("home") { inclusive = true }
-                                    }
-                                },
+                                onLogoutClick = logout,
                                 onAccountClick = { /* navigate to profile later */ },
-                                onHomeClick = {navController.navigate("home")},
-                                onBackClick = {navController.popBackStack()}
+                                onHomeClick = { goBackTo("credit_card") },
+                                onBackClick = {navController.popBackStack()},
+                                onSaveClick = { request -> ccViewModel.addCard(request) },
+                                isSaving = saveState is SaveUiState.Saving,
+                                serverError = (saveState as? SaveUiState.Error)?.message
                             )
                         }
 
                         composable("add_due_details") {
+                            val ccViewModel: CreditCardViewModel = viewModel()
+                            val cardsState by ccViewModel.cardsState.collectAsState()
+                            val saveState by ccViewModel.saveState.collectAsState()
+                            val context = LocalContext.current
+
+                            LaunchedEffect(Unit) { ccViewModel.loadCards() }
+                            LaunchedEffect(saveState) {
+                                val state = saveState
+                                if (state is SaveUiState.Success) {
+                                    Toast.makeText(context, state.message, Toast.LENGTH_SHORT).show()
+                                    ccViewModel.resetSaveState()
+                                    navController.popBackStack()
+                                }
+                            }
+
                             AddDueDetails(
-                                onLogoutClick = {
-                                    navController.navigate("login") {
-                                        popUpTo("home") { inclusive = true }
-                                    }
-                                },
+                                onLogoutClick = logout,
                                 onAccountClick = { /* navigate to profile later */ },
-                                onHomeClick = {navController.navigate("home")},
-                                onBackClick = {navController.popBackStack()}
+                                onHomeClick = { goBackTo("credit_card") },
+                                onBackClick = {navController.popBackStack()},
+                                cards = (cardsState as? CardsUiState.Loaded)?.cards.orEmpty(),
+                                onSaveClick = { request -> ccViewModel.addDue(request) },
+                                isSaving = saveState is SaveUiState.Saving,
+                                // A failed card load is shown here too, otherwise the CC list is just empty
+                                serverError = (saveState as? SaveUiState.Error)?.message
+                                    ?: (cardsState as? CardsUiState.Error)?.message
                             )
                         }
 
                         composable(
-                            route = "credit_card_details/{ccNumber}",
-                            arguments = listOf(navArgument("ccNumber") { type = NavType.StringType })
+                            route = "credit_card_details/{ccId}",
+                            arguments = listOf(navArgument("ccId") { type = NavType.IntType })
                         ) { backStackEntry ->
-                            val ccNumber = backStackEntry.arguments?.getString("ccNumber") ?: ""
+                            val ccId = backStackEntry.arguments?.getInt("ccId")
+                            val ccViewModel: CreditCardViewModel = viewModel()
+                            val cardsState by ccViewModel.cardsState.collectAsState()
+                            val saveState by ccViewModel.saveState.collectAsState()
+                            val context = LocalContext.current
+                            // Editing happens on the Details page itself
+                            var isEditing by rememberSaveable { mutableStateOf(false) }
 
+                            LaunchedEffect(Unit) { ccViewModel.loadCards() }
+                            LaunchedEffect(saveState) {
+                                val state = saveState
+                                if (state is SaveUiState.Success) {
+                                    Toast.makeText(context, state.message, Toast.LENGTH_SHORT).show()
+                                    ccViewModel.resetSaveState()
+                                    isEditing = false
+                                    ccViewModel.loadCards()     // show the saved values
+                                }
+                            }
+
+                            val state = cardsState
                             CreditCardDetails(
-                                ccNumber = ccNumber,
-                                onLogoutClick = {
-                                    navController.navigate("login") {
-                                        popUpTo(0) { inclusive = true }
-                                    }
+                                card = (state as? CardsUiState.Loaded)?.cards?.find { it.ccId == ccId },
+                                statusMessage = when (state) {
+                                    is CardsUiState.Loaded -> "Credit card not found."
+                                    is CardsUiState.Error -> state.message
+                                    CardsUiState.Loading -> null
                                 },
+                                isEditing = isEditing,
+                                onEditClick = { isEditing = true },
+                                onCancelEdit = {
+                                    isEditing = false
+                                    ccViewModel.resetSaveState()    // drop any old save error
+                                },
+                                onSaveClick = { request -> ccId?.let { ccViewModel.updateCard(it, request) } },
+                                isSaving = saveState is SaveUiState.Saving,
+                                serverError = (saveState as? SaveUiState.Error)?.message,
+                                onViewDuesClick = { ccId?.let { navController.navigate("due_details?ccId=$it") } },
+                                onLogoutClick = logout,
                                 onAccountClick = { /* navigate to profile later */ },
-                                onHomeClick = { navController.navigate("home") },
+                                onHomeClick = { goBackTo("credit_card") },
+                                onBackClick = { navController.popBackStack() }
+                            )
+                        }
+
+                        // Without ccId: every card's dues (from Credit Card Home). With ccId: one card (from Credit Card Details)
+                        composable(
+                            route = "due_details?ccId={ccId}",
+                            arguments = listOf(navArgument("ccId") {
+                                type = NavType.IntType
+                                defaultValue = -1
+                            })
+                        ) { backStackEntry ->
+                            val ccId = backStackEntry.arguments?.getInt("ccId")?.takeIf { it != -1 }
+                            val ccViewModel: CreditCardViewModel = viewModel()
+                            val duesState by ccViewModel.duesState.collectAsState()
+                            val saveState by ccViewModel.saveState.collectAsState()
+                            val context = LocalContext.current
+                            // Due being edited in place; null = none
+                            var editingDueId by rememberSaveable { mutableStateOf<Int?>(null) }
+
+                            LaunchedEffect(Unit) { ccViewModel.loadDues(ccId) }
+                            LaunchedEffect(saveState) {
+                                val state = saveState
+                                if (state is SaveUiState.Success) {
+                                    Toast.makeText(context, state.message, Toast.LENGTH_SHORT).show()
+                                    ccViewModel.resetSaveState()
+                                    editingDueId = null
+                                    ccViewModel.loadDues(ccId)      // show the edited / paid due
+                                }
+                            }
+
+                            DueDetailsList(
+                                dues = (duesState as? DuesUiState.Loaded)?.dues.orEmpty(),
+                                isLoading = duesState is DuesUiState.Loading,
+                                errorMessage = (duesState as? DuesUiState.Error)?.message,
+                                onSaveDue = { request -> ccViewModel.updateDue(request) },
+                                onPaidChange = { ccDueId, isPaid -> ccViewModel.setDuePaid(ccDueId, isPaid) },
+                                isSaving = saveState is SaveUiState.Saving,
+                                saveError = (saveState as? SaveUiState.Error)?.message,
+                                editingDueId = editingDueId,
+                                onEditDue = { ccDueId ->
+                                    editingDueId = ccDueId          // null = cancel
+                                    ccViewModel.resetSaveState()    // drop any old save error
+                                },
+                                showCardFilter = ccId == null,
+                                onLogoutClick = logout,
+                                onAccountClick = { /* navigate to profile later */ },
+                                onHomeClick = { goBackTo("credit_card") },
                                 onBackClick = { navController.popBackStack() }
                             )
                         }

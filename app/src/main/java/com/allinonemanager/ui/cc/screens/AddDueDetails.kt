@@ -17,12 +17,10 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Home
@@ -47,15 +45,25 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.input.OffsetMapping
+import androidx.compose.ui.text.input.TransformedText
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.navigation.compose.rememberNavController
+import com.allinonemanager.ui.cc.screens.dto.AddDueDetailsRequest
+import com.allinonemanager.ui.cc.screens.dto.CreditCard
 import com.allinonemanager.ui.user.screens.Black
 import com.allinonemanager.ui.user.screens.HintGray
 import com.allinonemanager.ui.user.screens.White
+import com.allinonemanager.ui.util.BOTTOM_BAR_HEIGHT
+import com.allinonemanager.ui.util.HomeBackButtons
 import com.allinonemanager.ui.util.TopWaveShape
+import java.text.SimpleDateFormat
+import java.util.Locale
 
 private val FigmaYellow4 = Color(0xFFFFC200)
 
@@ -67,20 +75,18 @@ fun AddDueDetails(
     onLogoutClick: () -> Unit = {},
     onAccountClick: () -> Unit = {},
     onBackClick: () -> Unit = {},
+    cards: List<CreditCard> = emptyList(),
+    onSaveClick: (AddDueDetailsRequest) -> Unit = {},
+    isSaving: Boolean = false,
+    serverError: String? = null,
     modifier: Modifier = Modifier
 ) {
     var ccBank by remember { mutableStateOf("") }
-    var ccList by remember { mutableStateOf("") }
-    val ccLists = listOf(
-        "Select CC","Rbl", "Icici", "Indus"
-    )
-    val banks = listOf("Select Bank",
-        "State Bank of India", "HDFC Bank", "ICICI Bank", "Axis Bank",
-        "Kotak Mahindra Bank", "IndusInd Bank", "Yes Bank", "IDFC FIRST Bank",
-        "RBL Bank", "Federal Bank", "AU Small Finance Bank", "Bank of Baroda",
-        "Punjab National Bank", "Canara Bank", "Union Bank of India",
-        "Standard Chartered", "HSBC", "American Express", "Other"
-    )
+    var selectedCard by remember { mutableStateOf<CreditCard?>(null) }
+    // Only banks the user has cards for; picking one narrows the CC list
+    val banks = cards.mapNotNull { it.ccBank }.distinct()
+    val ccLists = if (ccBank.isBlank()) cards else cards.filter { it.ccBank == ccBank }
+    var errorMessage by remember { mutableStateOf<String?>(null) }
     var bankExpanded by remember { mutableStateOf(false) }
     var ccListExpanded by remember { mutableStateOf(false) }
     var stmtDate by remember { mutableStateOf("") }
@@ -97,7 +103,9 @@ fun AddDueDetails(
     ) {
         Column(modifier = Modifier
             .fillMaxSize()
+            .navigationBarsPadding()
             .imePadding()                 // 1) reserve space for the keyboard
+            .padding(bottom = BOTTOM_BAR_HEIGHT)    // scroll area stops above Home/Back, so Save/Cancel never sit under them
             .verticalScroll(scrollState)) {
 
             // Top yellow header with wave bottom edge
@@ -153,25 +161,7 @@ fun AddDueDetails(
                     .align(Alignment.CenterHorizontally)
             )
             Spacer(modifier = Modifier.height(30.dp))
-            Row(
-            ) {
-                Text(
-                    text = "Choose Bank:",
-                    fontSize = 15.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Black,
-                    modifier = Modifier
-                        .padding(start = 30.dp)
-                )
-                Text(
-                    text = "CC List:",
-                    fontSize = 15.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Black,
-                    modifier = Modifier
-                        .padding(start = 68.dp)
-                )
-            }
+            LabelPair("Choose Bank:", "CC List:", gap = 30.dp)
             Spacer(modifier = Modifier.height(3.dp))
             Row(
             ) {
@@ -185,7 +175,7 @@ fun AddDueDetails(
                         value = ccBank,
                         onValueChange = {},                 // user picks from the list, no typing
                         readOnly = true,
-                        placeholder = { Text("cc bank", color = HintGray, fontSize = 15.sp) },
+                        placeholder = { Text("Select bank", color = HintGray, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                         trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = bankExpanded) },
                         singleLine = true,
                         shape = RoundedCornerShape(20.dp),
@@ -200,7 +190,7 @@ fun AddDueDetails(
                         modifier = Modifier
                             .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable)
                             .width(140.dp)
-                            .height(50.dp)
+                            .height(56.dp)
                     )
 
                     ExposedDropdownMenu(
@@ -212,6 +202,7 @@ fun AddDueDetails(
                                 text = { Text(bank, fontSize = 13.sp) },
                                 onClick = {
                                     ccBank = bank
+                                    if (selectedCard?.ccBank != bank) selectedCard = null
                                     bankExpanded = false
                                 }
                             )
@@ -225,10 +216,10 @@ fun AddDueDetails(
                     modifier = Modifier.padding(start = 30.dp)
                 ) {
                     OutlinedTextField(
-                        value = ccList,
+                        value = selectedCard?.let(::cardLabel).orEmpty(),
                         onValueChange = {},                 // user picks from the list, no typing
                         readOnly = true,
-                        placeholder = { Text("cc list", color = HintGray, fontSize = 15.sp) },
+                        placeholder = { Text("Select card", color = HintGray, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                         trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = ccListExpanded) },
                         singleLine = true,
                         shape = RoundedCornerShape(20.dp),
@@ -243,18 +234,24 @@ fun AddDueDetails(
                         modifier = Modifier
                             .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable)
                             .width(140.dp)
-                            .height(50.dp)
+                            .height(56.dp)
                     )
 
                     ExposedDropdownMenu(
                         expanded = ccListExpanded,
                         onDismissRequest = { ccListExpanded = false }
                     ) {
-                        ccLists.forEach { clist ->
+                        if (ccLists.isEmpty()) {
                             DropdownMenuItem(
-                                text = { Text(clist, fontSize = 13.sp) },
+                                text = { Text("No cards. Add a credit card first.", fontSize = 13.sp) },
+                                onClick = { ccListExpanded = false }
+                            )
+                        }
+                        ccLists.forEach { card ->
+                            DropdownMenuItem(
+                                text = { Text(cardLabel(card), fontSize = 13.sp) },
                                 onClick = {
-                                    ccList = clist
+                                    selectedCard = card
                                     ccListExpanded = false
                                 }
                             )
@@ -265,35 +262,19 @@ fun AddDueDetails(
 
             Spacer(modifier = Modifier.height(10.dp))
 
-            Row(
-            ) {
-                Text(
-                    text = "Statement Date:",
-                    fontSize = 15.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Black,
-                    modifier = Modifier
-                        .padding(start = 30.dp)
-                )
-                Text(
-                    text = "Due Date:",
-                    fontSize = 15.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Black,
-                    modifier = Modifier
-                        .padding(start = 50.dp)
-                )
-            }
+            LabelPair("Statement Date:", "Due Date:", gap = 30.dp)
             Spacer(modifier = Modifier.height(3.dp))
             Row(
             ) {
                 OutlinedTextField(
                     value = stmtDate,
                     onValueChange = { input ->
-                        stmtDate = input.filter { it.isDigit() }.take(16)
+                        stmtDate = input.filter { it.isDigit() }.take(8)
                     },
-                    placeholder = { Text("statement date", color = HintGray, fontSize = 15.sp) },
+                    placeholder = { Text("YYYY-MM-DD", color = HintGray, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                     singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    visualTransformation = DateVisualTransformation(),
                     shape = RoundedCornerShape(20.dp),
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedBorderColor = Black,
@@ -306,16 +287,18 @@ fun AddDueDetails(
                     modifier = Modifier
                         .padding(start = 30.dp)   // padding first, then size, so the field keeps its full 330 x 50
                         .width(140.dp)
-                        .height(50.dp)
+                        .height(56.dp)
                 )
 
                 OutlinedTextField(
                     value = dueDate,
                     onValueChange = { input ->
-                        dueDate = input.filter { it.isDigit() }.take(16)
+                        dueDate = input.filter { it.isDigit() }.take(8)
                     },
-                    placeholder = { Text("due date", color = HintGray, fontSize = 15.sp) },
+                    placeholder = { Text("YYYY-MM-DD", color = HintGray, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                     singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    visualTransformation = DateVisualTransformation(),
                     shape = RoundedCornerShape(20.dp),
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedBorderColor = Black,
@@ -328,39 +311,21 @@ fun AddDueDetails(
                     modifier = Modifier
                         .padding(start = 30.dp)   // padding first, then size, so the field keeps its full 330 x 50
                         .width(140.dp)
-                        .height(50.dp)
+                        .height(56.dp)
                 )
 
             }
             Spacer(modifier = Modifier.height(10.dp))
-            Row(
-            ) {
-                Text(
-                    text = "Due Amount:",
-                    fontSize = 15.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Black,
-                    modifier = Modifier
-                        .padding(start = 30.dp)
-                )
-                Text(
-                    text = "Minimum Due:",
-                    fontSize = 15.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Black,
-                    modifier = Modifier
-                        .padding(start = 75.dp)
-                )
-            }
+            LabelPair("Due Amount:", "Minimum Due:", gap = 30.dp)
             Spacer(modifier = Modifier.height(3.dp))
             Row(
             ) {
                 OutlinedTextField(
                     value = dueAmt,
                     onValueChange = { input ->
-                        dueAmt = input.filter { it.isDigit() }.take(16)
+                        dueAmt = amountInput(input)
                     },
-                    placeholder = { Text("due amount", color = HintGray, fontSize = 15.sp) },
+                    placeholder = { Text("₹ 0.00", color = HintGray, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                     singleLine = true,
                     shape = RoundedCornerShape(20.dp),
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
@@ -375,15 +340,15 @@ fun AddDueDetails(
                     modifier = Modifier
                         .padding(start = 30.dp)   // padding first, then size, so the field keeps its full 330 x 50
                         .width(140.dp)
-                        .height(50.dp)
+                        .height(56.dp)
                 )
 
                 OutlinedTextField(
                     value = minimumDue,
                     onValueChange = { input ->
-                        minimumDue = input.filter { it.isDigit() }.take(16)
+                        minimumDue = amountInput(input)
                     },
-                    placeholder = { Text("minimum due", color = HintGray, fontSize = 15.sp) },
+                    placeholder = { Text("₹ 0.00", color = HintGray, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                     singleLine = true,
                     shape = RoundedCornerShape(20.dp),
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
@@ -398,7 +363,7 @@ fun AddDueDetails(
                     modifier = Modifier
                         .padding(start = 30.dp)   // padding first, then size, so the field keeps its full 330 x 50
                         .width(140.dp)
-                        .height(50.dp)
+                        .height(56.dp)
                 )
 
             }
@@ -420,10 +385,9 @@ fun AddDueDetails(
                 OutlinedTextField(
                     value = totalOutStanding,
                     onValueChange = { input ->
-                        totalOutStanding = input.filter { it.isDigit() }.take(16)
+                        totalOutStanding = amountInput(input)
                     },
-                    placeholder = { Text("total outstanding", color = HintGray, fontSize = 15.sp, modifier = Modifier
-                        .padding(start = 5.dp)) },
+                    placeholder = { Text("₹ 0.00", color = HintGray, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                     singleLine = true,
                     shape = RoundedCornerShape(20.dp),
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
@@ -437,10 +401,15 @@ fun AddDueDetails(
                     textStyle = androidx.compose.ui.text.TextStyle(fontSize = 15.sp),
                     modifier = Modifier
                         .padding(start = 30.dp)   // padding first, then size, so the field keeps its full 330 x 50
-                        .width(180.dp)
-                        .height(55.dp)
+                        .width(140.dp)
+                        .height(56.dp)
                 )
             }
+            (errorMessage ?: serverError)?.let {
+                Spacer(modifier = Modifier.height(12.dp))
+                Text(it, color = Color.Red, fontSize = 14.sp, modifier = Modifier.padding(horizontal = 30.dp))
+            }
+
             Spacer(modifier = Modifier.height(30.dp))
             Row(
                 modifier = Modifier
@@ -449,11 +418,27 @@ fun AddDueDetails(
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Button(onClick = {},
+                Button(onClick = {
+                        val card = selectedCard
+                        errorMessage = validateDue(card, stmtDate, dueDate, dueAmt, minimumDue, totalOutStanding)
+                        if (errorMessage == null && card?.ccId != null) {
+                            onSaveClick(
+                                AddDueDetailsRequest(
+                                    ccId = card.ccId,
+                                    dueAmt = dueAmt.toDouble(),
+                                    minimumDue = minimumDue.toDouble(),
+                                    totalOutstanding = totalOutStanding,
+                                    statementDate = formatDate(stmtDate),
+                                    dueDate = formatDate(dueDate)
+                                )
+                            )
+                        }
+                    },
+                    enabled = !isSaving,
                     modifier = Modifier
                         .width(100.dp)) {
                     Text(
-                        text = "Save",
+                        text = if (isSaving) "Saving..." else "Save",
                         fontSize = 15.sp,
                         fontWeight = FontWeight.Bold,
                         color = White
@@ -473,51 +458,81 @@ fun AddDueDetails(
                 }
             }
 
-            Spacer(modifier = Modifier.height(90.dp))
-
         }
 
-        Row(
-            modifier = Modifier
-                .align(Alignment.BottomStart)
-                .navigationBarsPadding()
-                .padding(start = 10.dp, bottom = 16.dp),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Box(
-                modifier = Modifier
-                    .width(60.dp)
-                    .background(FigmaYellow4, shape = CircleShape)
-                    .height(60.dp)
-                    .padding(start = 10.dp, top = 10.dp, end = 10.dp, bottom = 10.dp)
-            ) {
-                IconButton(onClick = onHomeClick, modifier = Modifier.size(48.dp)) {
-                    Icon(
-                        imageVector = Icons.Default.Home,
-                        contentDescription = "Home",
-                        tint = Color.White,
-                        modifier = Modifier.size(36.dp)
-                    )
-                }
-            }
-            Box(
-                modifier = Modifier
-                    .width(60.dp)
-                    .background(FigmaYellow4, shape = CircleShape)
-                    .height(60.dp)
-                    .padding(start = 10.dp, top = 10.dp, end = 10.dp, bottom = 10.dp)
-            ) {
-                IconButton(onClick = onBackClick, modifier = Modifier.size(48.dp)) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                        contentDescription = "Back",
-                        tint = Color.White,
-                        modifier = Modifier.size(36.dp)
-                    )
-                }
+        HomeBackButtons(
+            onHomeClick = onHomeClick,
+            onBackClick = onBackClick,
+            modifier = Modifier.align(Alignment.BottomStart)
+        )
+
+    }
+}
+
+private fun cardLabel(card: CreditCard): String =
+    listOfNotNull(card.ccName?.takeIf { it.isNotBlank() }, card.maskedNumber).joinToString(" ")
+
+// Digits with at most one decimal point and two decimals, e.g. "1234.50"
+internal fun amountInput(input: String): String {
+    val cleaned = input.filter { it.isDigit() || it == '.' }
+    val dot = cleaned.indexOf('.')
+    if (dot < 0) return cleaned.take(10)
+    return cleaned.take(dot).take(10) + "." + cleaned.drop(dot + 1).replace(".", "").take(2)
+}
+
+// The date fields hold 8 digits (yyyyMMdd); this adds the dashes the backend expects
+internal fun formatDate(digits: String): String =
+    "${digits.take(4)}-${digits.substring(4, 6)}-${digits.substring(6, 8)}"
+
+internal fun isValidDate(digits: String): Boolean {
+    if (digits.length != 8) return false
+    return runCatching {
+        SimpleDateFormat("yyyyMMdd", Locale.US).apply { isLenient = false }.parse(digits)
+    }.isSuccess
+}
+
+// Returns an error message, or null if the due details can be saved.
+private fun validateDue(
+    card: CreditCard?,
+    stmtDate: String,
+    dueDate: String,
+    dueAmt: String,
+    minimumDue: String,
+    totalOutstanding: String
+): String? = when {
+    card?.ccId == null -> "Select a credit card"
+    !isValidDate(stmtDate) -> "Enter a valid statement date (yyyy-mm-dd)"
+    !isValidDate(dueDate) -> "Enter a valid due date (yyyy-mm-dd)"
+    dueAmt.toDoubleOrNull() == null -> "Enter the due amount"
+    minimumDue.toDoubleOrNull() == null -> "Enter the minimum due"
+    totalOutstanding.toDoubleOrNull() == null -> "Enter the total outstanding"
+    else -> null
+}
+
+// Shows 20261020 as 2026-10-20 while typing
+internal class DateVisualTransformation : VisualTransformation {
+    override fun filter(text: AnnotatedString): TransformedText {
+        val digits = text.text.take(8)
+        val formatted = buildString {
+            digits.forEachIndexed { i, c ->
+                if (i == 4 || i == 6) append('-')
+                append(c)
             }
         }
 
+        val mapping = object : OffsetMapping {
+            override fun originalToTransformed(offset: Int): Int = when {
+                offset <= 4 -> offset
+                offset <= 6 -> offset + 1
+                else -> offset + 2
+            }
+
+            override fun transformedToOriginal(offset: Int): Int = when {
+                offset <= 4 -> offset
+                offset <= 7 -> offset - 1
+                else -> offset - 2
+            }.coerceAtMost(digits.length)
+        }
+        return TransformedText(AnnotatedString(formatted), mapping)
     }
 }
