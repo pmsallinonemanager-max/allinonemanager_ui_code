@@ -53,6 +53,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -62,6 +63,7 @@ private val FigmaYellow3 = Color(0xFFFFC200)
 private val TextGray3 = Color(0xFF716F6F)
 private val HintGray3 = Color(0xFFC3BFBF)
 private val BorderGray3 = Color(0xFFD0CBCB)
+private val LinkBlue3 = Color(0xFF1565C0)
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -265,9 +267,10 @@ fun SignUpScreen(
                 Text("Already have an account? ", color = TextGray3, fontSize = 15.sp)
                 Text(
                     text = "Login",
-                    color = TextGray3,
+                    color = LinkBlue3,
                     fontWeight = FontWeight.Bold,
                     fontSize = 15.sp,
+                    textDecoration = TextDecoration.Underline,
                     modifier = Modifier.clickable { onLoginClick() }
                 )
             }

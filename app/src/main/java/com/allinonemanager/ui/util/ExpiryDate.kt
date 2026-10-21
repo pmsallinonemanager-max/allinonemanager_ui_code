@@ -40,10 +40,10 @@ fun ExpiryDate(
 
     Row(
         modifier = modifier
-            .size(width = 87.dp, height = 50.dp)
+            .size(width = 80.dp, height = 56.dp)
             .background(Color.White, pill)
-            .padding(start = 10.dp)
-            .border(1.dp, Color.Black, pill),
+            .border(1.dp, Color.Black, pill)
+            .padding(horizontal = 6.dp),          // keeps MM / YY off the rounded edges
         verticalAlignment = Alignment.CenterVertically
     ) {
         ExpiryPart(
@@ -92,7 +92,7 @@ private fun ExpiryPart(
         onValueChange = onValueChange,
         singleLine = true,
         textStyle = TextStyle(
-            fontSize = 16.sp,
+            fontSize = 15.sp,               // same as the other card fields
             color = Color.Black,
             textAlign = TextAlign.Center
         ),
@@ -102,7 +102,7 @@ private fun ExpiryPart(
         decorationBox = { innerTextField ->
             Box(contentAlignment = Alignment.Center) {
                 if (value.isEmpty()) {
-                    Text(hint, color = HintGray, fontSize = 16.sp)
+                    Text(hint, color = HintGray, fontSize = 13.sp)
                 }
                 innerTextField()
             }

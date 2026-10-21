@@ -14,8 +14,8 @@ interface UserApi {
     @POST("users/signup")
     suspend fun signUp(@Body request: SignUpRequest): Response<ResponseBody>
 
-    // Backend returns HTTP 200 with a plain-text message for both outcomes:
-    // "Login successful." on success, anything else is the failure reason
+    // Backend returns HTTP 200 for both outcomes with {"message": "...", "userId": 5}:
+    // message "Login successful." on success, anything else is the failure reason (userId null)
     @POST("users/login")
     suspend fun login(@Body request: LoginRequest): Response<ResponseBody>
 }

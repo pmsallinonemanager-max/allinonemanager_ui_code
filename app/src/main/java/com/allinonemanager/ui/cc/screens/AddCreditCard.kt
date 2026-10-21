@@ -10,14 +10,17 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Logout
@@ -46,12 +49,17 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.input.OffsetMapping
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.TransformedText
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.allinonemanager.ui.cc.screens.dto.AddCreditCardRequest
+import com.allinonemanager.ui.cc.screens.dto.CreditCard
 import com.allinonemanager.ui.user.screens.Black
 import com.allinonemanager.ui.user.screens.HintGray
 import com.allinonemanager.ui.user.screens.White
@@ -59,6 +67,9 @@ import com.allinonemanager.ui.util.ExpiryDate
 import com.allinonemanager.ui.util.TopWaveShape
 
 private val FigmaYellow4 = Color(0xFFFFC200)
+
+// Home/Back buttons (60dp) + their 16dp bottom margin + 16dp breathing room
+internal val BOTTOM_BAR_HEIGHT = 92.dp
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -68,11 +79,23 @@ fun AddCreditCard(
     onLogoutClick: () -> Unit = {},
     onAccountClick: () -> Unit = {},
     onBackClick: () -> Unit = {},
+    onSaveClick: (AddCreditCardRequest) -> Unit = {},
+    isSaving: Boolean = false,
+    serverError: String? = null,
+    // Editing an existing card: fields start with its values. Null = adding a new card.
+    card: CreditCard? = null,
+    title: String = "ADD CREDIT CARD",
     modifier: Modifier = Modifier
 ) {
-    var ccNumber by remember { mutableStateOf("") }
-    var ccBank by remember { mutableStateOf("") }
-    var ccType by remember { mutableStateOf("") }
+    // Keyed on card so the fields fill in once the card has loaded
+    var ccNumber by remember(card) { mutableStateOf(card?.ccNumber.orEmpty()) }
+    var ccName by remember(card) { mutableStateOf(card?.ccName.orEmpty()) }
+    var ccLimit by remember(card) { mutableStateOf(card?.ccLimit.orEmpty()) }
+    var statementDay by remember(card) { mutableStateOf(card?.statementDate.orEmpty()) }
+    var dueDay by remember(card) { mutableStateOf(card?.dueDate.orEmpty()) }
+    var errorMessage by remember { mutableStateOf<String?>(null) }
+    var ccBank by remember(card) { mutableStateOf(card?.ccBank.orEmpty()) }
+    var ccType by remember(card) { mutableStateOf(card?.ccType.orEmpty()) }
     val ccTypes = listOf(
         "Select Type","Rupay", "Visa", "Master"
     )
@@ -85,16 +108,22 @@ fun AddCreditCard(
     )
     var bankExpanded by remember { mutableStateOf(false) }
     var ccTypeExpanded by remember { mutableStateOf(false) }
-    var nameOnCard by remember { mutableStateOf("") }
-    var expMonth by remember { mutableStateOf("") }
-    var expYear by remember { mutableStateOf("") }
-    var cvv by remember { mutableStateOf("") }
+    var nameOnCard by remember(card) { mutableStateOf(card?.nameOnCard.orEmpty()) }
+    // expDate is stored as "MM/YY"
+    var expMonth by remember(card) { mutableStateOf(card?.expDate.orEmpty().substringBefore("/")) }
+    var expYear by remember(card) { mutableStateOf(card?.expDate.orEmpty().substringAfter("/", "")) }
+    var cvv by remember(card) { mutableStateOf(card?.cvv.orEmpty()) }
     Box(
         modifier = modifier
             .fillMaxSize()
             .background(Color.White)
     ) {
-        Column(modifier = Modifier.fillMaxSize()) {
+        Column(modifier = Modifier
+            .fillMaxSize()
+            .navigationBarsPadding()
+            .imePadding()
+            .padding(bottom = BOTTOM_BAR_HEIGHT)    // scroll area stops above Home/Back, so Save/Cancel never sit under them
+            .verticalScroll(rememberScrollState())) {
 
             // Top yellow header with wave bottom edge
             Box(
@@ -140,7 +169,7 @@ fun AddCreditCard(
             }
 
             Text(
-                text = "ADD CREDIT CARD",
+                text = title,
                 fontSize = 22.sp,
                 fontWeight = FontWeight.ExtraBold,
                 color = FigmaYellow4,
@@ -163,7 +192,7 @@ fun AddCreditCard(
                 onValueChange = { input ->
                     ccNumber = input.filter { it.isDigit() }.take(16)
                 },
-                placeholder = { Text("credit card number", color = HintGray, fontSize = 15.sp) },
+                placeholder = { Text("1234 5678 9012 3456", color = HintGray, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                 visualTransformation = CreditCardVisualTransformation(),
@@ -179,30 +208,12 @@ fun AddCreditCard(
                 modifier = Modifier
                     .padding(start = 30.dp)   // padding first, then size, so the field keeps its full 330 x 50
                     .width(300.dp)
-                    .height(50.dp)
+                    .height(56.dp)
             )
 
             Spacer(modifier = Modifier.height(10.dp))
 
-            Row(
-            ) {
-                Text(
-                    text = "CC Bank:",
-                    fontSize = 15.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Black,
-                    modifier = Modifier
-                        .padding(start = 30.dp)
-                )
-                Text(
-                    text = "CC Type:",
-                    fontSize = 15.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Black,
-                    modifier = Modifier
-                        .padding(start = 90.dp)
-                )
-            }
+            LabelPair("CC Bank:", "CC Type:")
             Spacer(modifier = Modifier.height(3.dp))
             Row(
             ) {
@@ -216,7 +227,7 @@ fun AddCreditCard(
                         value = ccBank,
                         onValueChange = {},                 // user picks from the list, no typing
                         readOnly = true,
-                        placeholder = { Text("cc bank", color = HintGray, fontSize = 15.sp) },
+                        placeholder = { Text("Select bank", color = HintGray, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                         trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = bankExpanded) },
                         singleLine = true,
                         shape = RoundedCornerShape(20.dp),
@@ -231,7 +242,7 @@ fun AddCreditCard(
                         modifier = Modifier
                             .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable)
                             .width(140.dp)
-                            .height(50.dp)
+                            .height(56.dp)
                     )
 
                     ExposedDropdownMenu(
@@ -259,7 +270,7 @@ fun AddCreditCard(
                         value = ccType,
                         onValueChange = {},                 // user picks from the list, no typing
                         readOnly = true,
-                        placeholder = { Text("cc type", color = HintGray, fontSize = 15.sp) },
+                        placeholder = { Text("Select type", color = HintGray, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                         trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = ccTypeExpanded) },
                         singleLine = true,
                         shape = RoundedCornerShape(20.dp),
@@ -274,7 +285,7 @@ fun AddCreditCard(
                         modifier = Modifier
                             .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable)
                             .width(140.dp)
-                            .height(50.dp)
+                            .height(56.dp)
                     )
 
                     ExposedDropdownMenu(
@@ -294,6 +305,7 @@ fun AddCreditCard(
                 }
             }
             Spacer(modifier = Modifier.height(10.dp))
+            // Widths match the fields below: name 130dp, 10dp gap + expiry 80dp, 10dp gap + CVV 70dp
             Row(
             ) {
                 Text(
@@ -301,8 +313,10 @@ fun AddCreditCard(
                     fontSize = 15.sp,
                     fontWeight = FontWeight.Bold,
                     color = Black,
+                    maxLines = 1,
                     modifier = Modifier
                         .padding(start = 30.dp)
+                        .width(130.dp)
                 )
                 Text(
                     text = "Exp Dt:",
@@ -310,7 +324,8 @@ fun AddCreditCard(
                     fontWeight = FontWeight.Bold,
                     color = Black,
                     modifier = Modifier
-                        .padding(start = 40.dp)
+                        .padding(start = 10.dp)
+                        .width(80.dp)
                 )
                 Text(
                     text = "CVV:",
@@ -318,7 +333,8 @@ fun AddCreditCard(
                     fontWeight = FontWeight.Bold,
                     color = Black,
                     modifier = Modifier
-                        .padding(start = 30.dp)
+                        .padding(start = 10.dp)
+                        .width(70.dp)
                 )
             }
             Spacer(modifier = Modifier.height(3.dp))
@@ -327,9 +343,9 @@ fun AddCreditCard(
                 OutlinedTextField(
                     value = nameOnCard,
                     onValueChange = { input ->
-                        nameOnCard = input.filter { it.isDigit() }.take(16)
+                        nameOnCard = input.filter { it.isLetter() || it == ' ' }.take(26)
                     },
-                    placeholder = { Text("name on card", color = HintGray, fontSize = 15.sp) },
+                    placeholder = { Text("Name on card", color = HintGray, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                     singleLine = true,
                     shape = RoundedCornerShape(20.dp),
                     colors = OutlinedTextFieldDefaults.colors(
@@ -343,23 +359,24 @@ fun AddCreditCard(
                     modifier = Modifier
                         .padding(start = 30.dp)   // padding first, then size, so the field keeps its full 330 x 50
                         .width(130.dp)
-                        .height(50.dp)
+                        .height(56.dp)
                 )
                 ExpiryDate(
                     month = expMonth,
                     year = expYear,
                     onMonthChange = { expMonth = it },
-                    onYearChange = { expYear = it }
+                    onYearChange = { expYear = it },
+                    modifier = Modifier.padding(start = 10.dp)
                 )
                 OutlinedTextField(
                     value = cvv,
                     onValueChange = { input ->
-                        cvv = input.filter { it.isDigit() }.take(16)
+                        cvv = input.filter { it.isDigit() }.take(4)
                     },
-                    placeholder = { Text("cvv", color = HintGray, fontSize = 15.sp) },
+                    placeholder = { Text("123", color = HintGray, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                     singleLine = true,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    visualTransformation = CreditCardVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+                    visualTransformation = PasswordVisualTransformation(),
                     shape = RoundedCornerShape(20.dp),
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedBorderColor = Black,
@@ -372,8 +389,52 @@ fun AddCreditCard(
                     modifier = Modifier
                         .padding(start = 10.dp)   // padding first, then size, so the field keeps its full 330 x 50
                         .width(70.dp)
-                        .height(50.dp)
+                        .height(56.dp)
                 )
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+            LabelPair("CC Name:", "Limit:")
+            Spacer(modifier = Modifier.height(3.dp))
+            Row {
+                CcTextField(
+                    value = ccName,
+                    onValueChange = { ccName = it.take(30) },
+                    placeholder = "e.g. Legend",
+                    modifier = Modifier.padding(start = 30.dp)
+                )
+                CcTextField(
+                    value = ccLimit,
+                    onValueChange = { input -> ccLimit = input.filter { it.isDigit() }.take(9) },
+                    placeholder = "e.g. 200000",
+                    keyboardType = KeyboardType.Number,
+                    modifier = Modifier.padding(start = 20.dp)
+                )
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+            LabelPair("Statement Day:", "Due Day:")
+            Spacer(modifier = Modifier.height(3.dp))
+            Row {
+                CcTextField(
+                    value = statementDay,
+                    onValueChange = { input -> statementDay = input.filter { it.isDigit() }.take(2) },
+                    placeholder = "1 - 31",
+                    keyboardType = KeyboardType.Number,
+                    modifier = Modifier.padding(start = 30.dp)
+                )
+                CcTextField(
+                    value = dueDay,
+                    onValueChange = { input -> dueDay = input.filter { it.isDigit() }.take(2) },
+                    placeholder = "1 - 31",
+                    keyboardType = KeyboardType.Number,
+                    modifier = Modifier.padding(start = 20.dp)
+                )
+            }
+
+            (errorMessage ?: serverError)?.let {
+                Spacer(modifier = Modifier.height(12.dp))
+                Text(it, color = Color.Red, fontSize = 14.sp, modifier = Modifier.padding(horizontal = 30.dp))
             }
 
             Spacer(modifier = Modifier.height(30.dp))
@@ -384,11 +445,34 @@ fun AddCreditCard(
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Button(onClick = {},
+                Button(onClick = {
+                        errorMessage = validateCard(
+                            ccNumber, ccBank, ccType, ccName, nameOnCard, expMonth, expYear,
+                            cvv, statementDay, dueDay, ccLimit
+                        )
+                        if (errorMessage == null) {
+                            onSaveClick(
+                                AddCreditCardRequest(
+                                    userId = 0,     // filled in by CreditCardViewModel from the session
+                                    ccNumber = ccNumber,
+                                    ccBank = ccBank,
+                                    ccName = ccName.trim(),
+                                    ccType = ccType,
+                                    expDate = "$expMonth/$expYear",
+                                    cvv = cvv,
+                                    nameOnCard = nameOnCard.trim(),
+                                    statementDate = statementDay.toInt().toString(),
+                                    dueDate = dueDay.toInt().toString(),
+                                    ccLimit = ccLimit
+                                )
+                            )
+                        }
+                    },
+                    enabled = !isSaving,
                     modifier = Modifier
                         .width(100.dp)) {
                     Text(
-                        text = "Save",
+                        text = if (isSaving) "Saving..." else "Save",
                         fontSize = 15.sp,
                         fontWeight = FontWeight.Bold,
                         color = White
@@ -407,7 +491,6 @@ fun AddCreditCard(
                     )
                 }
             }
-
         }
 
         Row(
@@ -453,6 +536,83 @@ fun AddCreditCard(
         }
 
     }
+}
+
+// Two labels sitting above two 140dp fields (30dp start, [gap] between them)
+@Composable
+internal fun LabelPair(left: String, right: String, gap: Dp = 20.dp) {
+    Row {
+        Text(
+            text = left,
+            fontSize = 15.sp,
+            fontWeight = FontWeight.Bold,
+            color = Black,
+            modifier = Modifier.padding(start = 30.dp).width(140.dp)
+        )
+        Text(
+            text = right,
+            fontSize = 15.sp,
+            fontWeight = FontWeight.Bold,
+            color = Black,
+            modifier = Modifier.padding(start = gap).width(140.dp)
+        )
+    }
+}
+
+@Composable
+private fun CcTextField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    placeholder: String,
+    modifier: Modifier = Modifier,
+    keyboardType: KeyboardType = KeyboardType.Text
+) {
+    OutlinedTextField(
+        value = value,
+        onValueChange = onValueChange,
+        placeholder = { Text(placeholder, color = HintGray, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+        singleLine = true,
+        keyboardOptions = KeyboardOptions(keyboardType = keyboardType),
+        shape = RoundedCornerShape(20.dp),
+        colors = OutlinedTextFieldDefaults.colors(
+            focusedBorderColor = Black,
+            unfocusedBorderColor = Black,
+            focusedTextColor = Black,
+            unfocusedTextColor = Black,
+            cursorColor = Black
+        ),
+        textStyle = androidx.compose.ui.text.TextStyle(fontSize = 15.sp),
+        modifier = modifier
+            .width(140.dp)
+            .height(56.dp)
+    )
+}
+
+// Returns an error message, or null if the card can be saved.
+private fun validateCard(
+    ccNumber: String,
+    ccBank: String,
+    ccType: String,
+    ccName: String,
+    nameOnCard: String,
+    expMonth: String,
+    expYear: String,
+    cvv: String,
+    statementDay: String,
+    dueDay: String,
+    ccLimit: String
+): String? = when {
+    ccNumber.length !in 13..16 -> "Enter a valid credit card number"
+    ccBank.isBlank() || ccBank == "Select Bank" -> "Select a bank"
+    ccType.isBlank() || ccType == "Select Type" -> "Select a card type"
+    nameOnCard.isBlank() -> "Enter the name on card"
+    expMonth.toIntOrNull() !in 1..12 || expYear.length != 2 -> "Enter a valid expiry date (MM/YY)"
+    cvv.length !in 3..4 -> "Enter a valid CVV"
+    ccName.isBlank() -> "Enter the card name"
+    ccLimit.isBlank() -> "Enter the credit limit"
+    statementDay.toIntOrNull() !in 1..31 -> "Statement day must be between 1 and 31"
+    dueDay.toIntOrNull() !in 1..31 -> "Due day must be between 1 and 31"
+    else -> null
 }
 
 class CreditCardVisualTransformation : VisualTransformation {
