@@ -197,13 +197,25 @@ class MainActivity : ComponentActivity() {
                             )
                         }
 
-                        composable("add_due_details") {
+                        // Without ccId: user picks the card. With ccId: that card is picked (from its empty Dues page)
+                        composable(
+                            route = "add_due_details?ccId={ccId}",
+                            arguments = listOf(navArgument("ccId") {
+                                type = NavType.IntType
+                                defaultValue = -1
+                            })
+                        ) { backStackEntry ->
+                            val preselectedCcId = backStackEntry.arguments?.getInt("ccId")?.takeIf { it != -1 }
                             val ccViewModel: CreditCardViewModel = viewModel()
                             val cardsState by ccViewModel.cardsState.collectAsState()
+                            val duesState by ccViewModel.duesState.collectAsState()
                             val saveState by ccViewModel.saveState.collectAsState()
                             val context = LocalContext.current
 
-                            LaunchedEffect(Unit) { ccViewModel.loadCards() }
+                            LaunchedEffect(Unit) {
+                                ccViewModel.loadCards()
+                                ccViewModel.loadDues()      // same-month check and unpaid older bills
+                            }
                             LaunchedEffect(saveState) {
                                 val state = saveState
                                 if (state is SaveUiState.Success) {
@@ -218,7 +230,11 @@ class MainActivity : ComponentActivity() {
                                 onAccountClick = { /* navigate to profile later */ },
                                 onHomeClick = { goBackTo("credit_card") },
                                 onBackClick = {navController.popBackStack()},
-                                cards = (cardsState as? CardsUiState.Loaded)?.cards.orEmpty(),
+                                // Dues are added only to active cards
+                                cards = (cardsState as? CardsUiState.Loaded)?.cards.orEmpty().filter { it.active },
+                                preselectedCcId = preselectedCcId,
+                                dues = (duesState as? DuesUiState.Loaded)?.dues.orEmpty(),
+                                onViewDuesClick = { ccId -> navController.navigate("due_details?ccId=$ccId") },
                                 onSaveClick = { request -> ccViewModel.addDue(request) },
                                 isSaving = saveState is SaveUiState.Saving,
                                 // A failed card load is shown here too, otherwise the CC list is just empty
@@ -234,19 +250,27 @@ class MainActivity : ComponentActivity() {
                             val ccId = backStackEntry.arguments?.getInt("ccId")
                             val ccViewModel: CreditCardViewModel = viewModel()
                             val cardsState by ccViewModel.cardsState.collectAsState()
+                            val duesState by ccViewModel.duesState.collectAsState()
                             val saveState by ccViewModel.saveState.collectAsState()
                             val context = LocalContext.current
                             // Editing happens on the Details page itself
                             var isEditing by rememberSaveable { mutableStateOf(false) }
 
-                            LaunchedEffect(Unit) { ccViewModel.loadCards() }
+                            LaunchedEffect(Unit) {
+                                ccViewModel.loadCards()
+                                ccViewModel.loadDues(ccId)      // Delete is only allowed without dues
+                            }
                             LaunchedEffect(saveState) {
                                 val state = saveState
                                 if (state is SaveUiState.Success) {
                                     Toast.makeText(context, state.message, Toast.LENGTH_SHORT).show()
                                     ccViewModel.resetSaveState()
-                                    isEditing = false
-                                    ccViewModel.loadCards()     // show the saved values
+                                    if (state.message == CreditCardViewModel.CARD_DELETED) {
+                                        goBackTo("credit_card")     // the card is gone
+                                    } else {
+                                        isEditing = false
+                                        ccViewModel.loadCards()     // show the saved values / new status
+                                    }
                                 }
                             }
 
@@ -267,6 +291,13 @@ class MainActivity : ComponentActivity() {
                                 onSaveClick = { request -> ccId?.let { ccViewModel.updateCard(it, request) } },
                                 isSaving = saveState is SaveUiState.Saving,
                                 serverError = (saveState as? SaveUiState.Error)?.message,
+                                dueCount = when (val dues = duesState) {
+                                    is DuesUiState.Loaded -> dues.dues.size
+                                    is DuesUiState.Error -> 0     // could not check; the backend refuses if dues exist
+                                    DuesUiState.Loading -> null
+                                },
+                                onActiveChange = { isActive -> ccId?.let { ccViewModel.setCardActive(it, isActive) } },
+                                onDeleteClick = { ccId?.let { ccViewModel.deleteCard(it) } },
                                 onViewDuesClick = { ccId?.let { navController.navigate("due_details?ccId=$it") } },
                                 onLogoutClick = logout,
                                 onAccountClick = { /* navigate to profile later */ },
@@ -316,6 +347,12 @@ class MainActivity : ComponentActivity() {
                                     ccViewModel.resetSaveState()    // drop any old save error
                                 },
                                 showCardFilter = ccId == null,
+                                onDeleteDue = { due ->
+                                    if (due.ccDueId != null && due.ccId != null) ccViewModel.deleteDue(due.ccDueId, due.ccId)
+                                },
+                                onAddDueClick = {
+                                    navController.navigate(if (ccId != null) "add_due_details?ccId=$ccId" else "add_due_details")
+                                },
                                 onLogoutClick = logout,
                                 onAccountClick = { /* navigate to profile later */ },
                                 onHomeClick = { goBackTo("credit_card") },

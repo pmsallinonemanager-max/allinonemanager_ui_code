@@ -6,7 +6,13 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.automirrored.filled.Undo
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.OutlinedIconButton
+import androidx.compose.material3.TextButton
+import com.allinonemanager.ui.util.monthLabel
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -98,6 +104,9 @@ fun DueDetailsList(
     // Due shown as an edit form; null = none. onEditDue(null) cancels.
     editingDueId: Int? = null,
     onEditDue: (Int?) -> Unit = {},
+    // Shown as a button when there are no dues yet
+    onAddDueClick: () -> Unit = {},
+    onDeleteDue: (DueDetail) -> Unit = {},
     onHomeClick: () -> Unit = {},
     onLogoutClick: () -> Unit = {},
     onAccountClick: () -> Unit = {},
@@ -107,6 +116,8 @@ fun DueDetailsList(
     var selectedCcId by remember { mutableStateOf<Int?>(null) }   // null = all cards
     var cardExpanded by remember { mutableStateOf(false) }
     var statusFilter by remember { mutableStateOf(statusFilters.first()) }
+    // Due waiting for delete confirmation; null = no dialog
+    var dueToDelete by remember { mutableStateOf<DueDetail?>(null) }
 
     val cards = dues.distinctBy { it.ccId }
     val shown = dues
@@ -292,7 +303,7 @@ fun DueDetailsList(
                     val status = when {
                         isLoading -> "Loading due details..."
                         errorMessage != null -> errorMessage
-                        dues.isEmpty() -> "No due details yet. Add them from Add Due Details."
+                        dues.isEmpty() -> if (showCardFilter) "No dues yet." else "No dues yet for this card."
                         shown.isEmpty() -> "Nothing matches this filter."
                         else -> null
                     }
@@ -306,6 +317,17 @@ fun DueDetailsList(
                                 .fillMaxWidth()
                                 .padding(vertical = 16.dp)
                         )
+                    }
+                    if (!isLoading && errorMessage == null && dues.isEmpty()) {
+                        Button(
+                            onClick = onAddDueClick,
+                            colors = ButtonDefaults.buttonColors(containerColor = FigmaYellow4),
+                            modifier = Modifier.align(Alignment.CenterHorizontally)
+                        ) {
+                            Icon(Icons.Default.Add, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Add Due", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                        }
                     }
 
                     shown.forEach { due ->
@@ -322,6 +344,7 @@ fun DueDetailsList(
                                 due = due,
                                 onEdit = { onEditDue(due.ccDueId) },
                                 onPaidChange = { isPaid -> due.ccDueId?.let { onPaidChange(it, isPaid) } },
+                                onDelete = { dueToDelete = due },
                                 isSaving = isSaving
                             )
                         }
@@ -343,6 +366,32 @@ fun DueDetailsList(
             modifier = Modifier.align(Alignment.BottomStart)
         )
     }
+
+    dueToDelete?.let { due ->
+        AlertDialog(
+            onDismissRequest = { dueToDelete = null },
+            title = { Text("Delete due?", fontSize = 18.sp, fontWeight = FontWeight.Bold) },
+            text = {
+                Text(
+                    text = "Delete ${monthLabel(due.statementDate)} due of ${formatAmount(due.dueAmt)} for ${due.cardLabel}? " +
+                        "This can't be undone." +
+                        if (due.isPaid == true) "\n\nThis bill is marked paid. Deleting it removes it from your history." else "",
+                    fontSize = 14.sp
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    dueToDelete = null
+                    onDeleteDue(due)
+                }) {
+                    Text("Delete", color = OverdueRed, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { dueToDelete = null }) { Text("Cancel", color = Color.Gray) }
+            }
+        )
+    }
 }
 
 @Composable
@@ -350,6 +399,7 @@ private fun DueItem(
     due: DueDetail,
     onEdit: () -> Unit,
     onPaidChange: (isPaid: Boolean) -> Unit,
+    onDelete: () -> Unit,
     isSaving: Boolean
 ) {
     val isPaid = due.isPaid == true
@@ -399,17 +449,18 @@ private fun DueItem(
             color = HintGray
         )
         Spacer(modifier = Modifier.height(10.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            OutlinedButton(
+        // Edit / Delete are icon only, so "Mark as Paid" gets the rest of the row and shows in full
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            OutlinedIconButton(
                 onClick = onEdit,
                 enabled = !isSaving,
                 border = BorderStroke(1.5.dp, FigmaYellow4),
-                contentPadding = PaddingValues(horizontal = 12.dp),
-                modifier = Modifier.weight(1f).height(38.dp)
+                modifier = Modifier.size(38.dp)
             ) {
-                Icon(Icons.Default.Edit, contentDescription = null, tint = FigmaYellow4, modifier = Modifier.size(16.dp))
-                Spacer(modifier = Modifier.width(6.dp))
-                Text("Edit", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = FigmaYellow4)
+                Icon(Icons.Default.Edit, contentDescription = "Edit due", tint = FigmaYellow4, modifier = Modifier.size(18.dp))
             }
             // Paid -> grey "Mark Unpaid" in case it was tapped by mistake
             Button(
@@ -433,6 +484,14 @@ private fun DueItem(
                     color = Color.White,
                     maxLines = 1
                 )
+            }
+            OutlinedIconButton(
+                onClick = onDelete,
+                enabled = !isSaving,
+                border = BorderStroke(1.5.dp, OverdueRed),
+                modifier = Modifier.size(38.dp)
+            ) {
+                Icon(Icons.Default.Delete, contentDescription = "Delete due", tint = OverdueRed, modifier = Modifier.size(18.dp))
             }
         }
     }

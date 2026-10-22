@@ -35,9 +35,56 @@ fun nextDateForDay(day: String?, today: Calendar = Calendar.getInstance()): Cale
     return date
 }
 
-/** Day of the month -> its next date as "4 Nov"; "-" if it is not a day */
-fun nextDateLabel(day: String?): String =
-    nextDateForDay(day)?.let { SimpleDateFormat("d MMM", Locale.US).format(it.time) } ?: "-"
+// Puts [date] on day [d] of its month; too-short months use their last day
+private fun Calendar.onDay(d: Int): Calendar = apply {
+    set(Calendar.DAY_OF_MONTH, 1)
+    set(Calendar.DAY_OF_MONTH, d.coerceAtMost(getActualMaximum(Calendar.DAY_OF_MONTH)))
+}
+
+/** Latest date (today or earlier) that falls on [day], e.g. day 15 on 21 Oct -> 15 Oct. */
+fun lastDateForDay(day: String?, today: Calendar = Calendar.getInstance()): Calendar? {
+    val d = day?.toIntOrNull()?.takeIf { it in 1..31 } ?: return null
+    val date = (today.clone() as Calendar).onDay(d)
+    // This month's date is still ahead: use last month
+    if (date.after(today)) date.apply { set(Calendar.DAY_OF_MONTH, 1); add(Calendar.MONTH, -1) }.onDay(d)
+    return date
+}
+
+/**
+ * Current bill cycle: the last statement generated and the due date that follows it,
+ * e.g. statement 15 / due 4 on 21 Oct -> (15 Oct, 4 Nov). Null for a missing day.
+ */
+fun currentCycleDates(statementDay: String?, dueDay: String?): Pair<Calendar?, Calendar?> {
+    val statement = lastDateForDay(statementDay)
+    val d = dueDay?.toIntOrNull()?.takeIf { it in 1..31 }
+    val due = when {
+        d == null -> null
+        statement == null -> nextDateForDay(dueDay)
+        // First due day after the statement
+        else -> (statement.clone() as Calendar).onDay(d).let {
+            if (it.after(statement)) it else it.apply { set(Calendar.DAY_OF_MONTH, 1); add(Calendar.MONTH, 1) }.onDay(d)
+        }
+    }
+    return statement to due
+}
+
+/** [currentCycleDates] as "15 Oct" / "4 Nov"; "-" for a missing day */
+fun currentCycleLabels(statementDay: String?, dueDay: String?): Pair<String, String> {
+    val format = SimpleDateFormat("d MMM", Locale.US)
+    val (statement, due) = currentCycleDates(statementDay, dueDay)
+    return (statement?.let { format.format(it.time) } ?: "-") to (due?.let { format.format(it.time) } ?: "-")
+}
+
+/** Next statement date after today, e.g. day 15 on 10 Nov -> "15 Nov"; null if [day] is not a day */
+fun nextStatementLabel(day: String?): String? {
+    val tomorrow = Calendar.getInstance().apply { add(Calendar.DAY_OF_MONTH, 1) }
+    return nextDateForDay(day, tomorrow)?.let { SimpleDateFormat("d MMM", Locale.US).format(it.time) }
+}
+
+/** "2026-10-15" -> "Oct 2026"; "-" if it is not yyyy-MM-dd */
+fun monthLabel(date: String?): String = date?.let {
+    runCatching { SimpleDateFormat("yyyy-MM-dd", Locale.US).apply { isLenient = false }.parse(it) }.getOrNull()
+}?.let { SimpleDateFormat("MMM yyyy", Locale.US).format(it) } ?: "-"
 
 /** "2026-11-04" -> "4 Nov 2026"; text that is not yyyy-MM-dd is returned as is */
 fun readableDate(date: String?): String {

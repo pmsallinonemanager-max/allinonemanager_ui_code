@@ -13,9 +13,14 @@ data class CreditCard(
     val nameOnCard: String? = null,
     val statementDate: String? = null,
     val dueDate: String? = null,
-    val ccLimit: String? = null
+    val ccLimit: String? = null,
+    val isActive: Boolean? = null
 ) {
     // "•••• 1234" so the full number is not shown in lists
     val maskedNumber: String
         get() = "•••• " + ccNumber.orEmpty().takeLast(4)
+
+    // Missing isActive (older backend) counts as active
+    val active: Boolean
+        get() = isActive != false
 }

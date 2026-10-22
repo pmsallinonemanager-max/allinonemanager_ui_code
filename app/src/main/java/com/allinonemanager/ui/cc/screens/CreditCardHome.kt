@@ -24,6 +24,10 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -46,9 +50,11 @@ import com.allinonemanager.ui.cc.screens.dto.DueDetail
 import com.allinonemanager.ui.util.BOTTOM_BAR_HEIGHT
 import com.allinonemanager.ui.util.HomeBackButtons
 import com.allinonemanager.ui.util.TopWaveShape
-import com.allinonemanager.ui.util.nextDateLabel
+import com.allinonemanager.ui.util.currentCycleLabels
 import com.allinonemanager.ui.util.ordinalDay
 import java.text.NumberFormat
+import java.text.SimpleDateFormat
+import java.util.Date
 import java.util.Locale
 
 private val FigmaYellow4 = Color(0xFFFFC200)
@@ -56,6 +62,7 @@ private val TableLine = Color(0xFFEEEEEE)
 private val StripeGray = Color(0xFFFAFAFA)
 private val PaidGreen = Color(0xFF2E7D32)
 private val UnpaidOrange = Color(0xFFEF6C00)
+private val OverdueRed = Color(0xFFD32F2F)
 private val ActionText = Color(0xFF8A6100)      // dark yellow, readable on the light yellow pills
 
 @Composable
@@ -76,6 +83,10 @@ fun CreditCardHome(
     errorMessage: String? = null,
     modifier: Modifier = Modifier
 ) {
+    // Inactive cards are left out of the totals and listed separately on request
+    val (activeCards, inactiveCards) = cards.partition { it.active }
+    var showInactive by remember { mutableStateOf(false) }
+
     Box(
         modifier = modifier
             .fillMaxSize()
@@ -142,10 +153,10 @@ fun CreditCardHome(
                         .padding(top = 20.dp),
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    SummaryTile("Total Cards", if (isLoading) "-" else cards.size.toString(), Modifier.weight(1f))
+                    SummaryTile("Total Cards", if (isLoading) "-" else activeCards.size.toString(), Modifier.weight(1f))
                     SummaryTile(
                         "Total Limit",
-                        if (isLoading) "-" else formatRupees(cards.sumOf { it.ccLimit?.toLongOrNull() ?: 0L }),
+                        if (isLoading) "-" else formatRupees(activeCards.sumOf { it.ccLimit?.toLongOrNull() ?: 0L }),
                         Modifier.weight(1.4f)
                     )
                 }
@@ -164,24 +175,36 @@ fun CreditCardHome(
 
                 Spacer(modifier = Modifier.height(20.dp))
 
-                if (cards.isNotEmpty()) {
+                // Latest due per card decides its status, unless an older one is still unpaid past its due date
+                val latestDue = dues.filter { it.ccId != null }
+                    .groupBy { it.ccId }
+                    .mapValues { (_, cardDues) -> cardDues.maxByOrNull { it.dueDate.orEmpty() } }
+                val today = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())     // dates compare as text
+                val overdueCcIds = dues
+                    .filter { it.isPaid != true && !it.dueDate.isNullOrBlank() && it.dueDate < today }
+                    .mapNotNull { it.ccId }
+                    .toSet()
+
+                if (activeCards.isNotEmpty()) {
                     Text(
-                        text = "Statement and Due show the next upcoming dates.",
+                        text = "Current bill cycle: last statement date and its due date.",
                         fontSize = 12.sp,
                         color = Color.Gray,
                         modifier = Modifier.padding(start = 4.dp, bottom = 6.dp)
                     )
-                    // Latest due per card decides its status
-                    val latestDue = dues.filter { it.ccId != null }
-                        .groupBy { it.ccId }
-                        .mapValues { (_, cardDues) -> cardDues.maxByOrNull { it.dueDate.orEmpty() } }
-                    CardsTable(cards = cards, latestDue = { latestDue[it.ccId] }, onCardClick = onCardClick)
+                    CardsTable(
+                        cards = activeCards,
+                        latestDue = { latestDue[it.ccId] },
+                        isOverdue = { it.ccId in overdueCcIds },
+                        onCardClick = onCardClick
+                    )
                 }
 
                 val status = when {
                     isLoading -> "Loading credit cards..."
                     errorMessage != null -> errorMessage
                     cards.isEmpty() -> "No credit cards yet. Tap Add Credit Card to add one."
+                    activeCards.isEmpty() -> "No active cards."
                     else -> null
                 }
                 status?.let {
@@ -194,6 +217,28 @@ fun CreditCardHome(
                             .fillMaxWidth()
                             .padding(horizontal = 8.dp, vertical = 16.dp)
                     )
+                }
+
+                if (inactiveCards.isNotEmpty()) {
+                    Text(
+                        text = if (showInactive) "Hide inactive cards" else "Show inactive cards (${inactiveCards.size})",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = ActionText,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(8.dp))
+                            .clickable { showInactive = !showInactive }
+                            .padding(horizontal = 4.dp, vertical = 10.dp)
+                    )
+                    if (showInactive) {
+                        CardsTable(
+                            cards = inactiveCards,
+                            latestDue = { null },
+                            isOverdue = { false },
+                            onCardClick = onCardClick,
+                            inactive = true
+                        )
+                    }
                 }
 
                 Spacer(modifier = Modifier.height(16.dp))
@@ -237,8 +282,12 @@ private val columnWeights = listOf(1.5f, 0.95f, 0.85f, 0.95f)
 private fun CardsTable(
     cards: List<CreditCard>,
     latestDue: (CreditCard) -> DueDetail?,
-    onCardClick: (CreditCard) -> Unit
+    isOverdue: (CreditCard) -> Boolean,
+    onCardClick: (CreditCard) -> Unit,
+    // Greyed rows with an "Inactive" badge instead of Paid / Unpaid
+    inactive: Boolean = false
 ) {
+    val textColor = if (inactive) Color.Gray else Color.Black
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -248,7 +297,7 @@ private fun CardsTable(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .background(FigmaYellow4)
+                .background(if (inactive) Color.Gray else FigmaYellow4)
                 .padding(horizontal = 12.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -280,31 +329,37 @@ private fun CardsTable(
                         text = card.ccBank.orEmpty(),
                         fontSize = 14.sp,
                         fontWeight = FontWeight.Bold,
-                        color = Color.Black,
+                        color = textColor,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
                     Text(text = card.maskedNumber, fontSize = 12.sp, color = Color.Gray)
                 }
-                DayCell(card.statementDate, Modifier.weight(columnWeights[1]))
-                DayCell(card.dueDate, Modifier.weight(columnWeights[2]))
+                val (statement, due) = currentCycleLabels(card.statementDate, card.dueDate)
+                DateCell(statement, textColor, Modifier.weight(columnWeights[1]))
+                DateCell(due, textColor, Modifier.weight(columnWeights[2]))
                 Box(modifier = Modifier.weight(columnWeights[3]), contentAlignment = Alignment.Center) {
-                    StatusBadge(latestDue(card))
+                    when {
+                        inactive -> Badge("Inactive", Color.Gray)
+                        isOverdue(card) -> Badge("Overdue", OverdueRed)
+                        else -> StatusBadge(latestDue(card))
+                    }
                 }
             }
         }
     }
 }
 
-// Shows the next date the card's statement / due day falls on
+// One date of the current bill cycle, e.g. "15 Oct"
 @Composable
-private fun DayCell(day: String?, modifier: Modifier) {
+private fun DateCell(label: String, color: Color, modifier: Modifier) {
     Text(
-        text = nextDateLabel(day),          // day of month -> next date, e.g. "4" -> "4 Nov"
+        text = label,
         fontSize = 14.sp,
         fontWeight = FontWeight.SemiBold,
-        color = Color.Black,
+        color = color,
         textAlign = TextAlign.Center,
+        maxLines = 1,
         modifier = modifier
     )
 }
@@ -317,6 +372,11 @@ private fun StatusBadge(due: DueDetail?) {
         due.isPaid == true -> "Paid" to PaidGreen
         else -> "Unpaid" to UnpaidOrange
     }
+    Badge(text, color)
+}
+
+@Composable
+private fun Badge(text: String, color: Color) {
     Text(
         text = text,
         fontSize = 11.sp,

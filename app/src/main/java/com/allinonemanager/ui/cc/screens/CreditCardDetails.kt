@@ -33,12 +33,18 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.AccountCircle
+import androidx.compose.material.icons.filled.Block
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Restore
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
@@ -63,6 +69,7 @@ import com.allinonemanager.ui.cc.screens.dto.AddCreditCardRequest
 import com.allinonemanager.ui.cc.screens.dto.CreditCard
 import com.allinonemanager.ui.user.screens.Black
 import com.allinonemanager.ui.user.screens.White
+import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuAnchorType
@@ -76,13 +83,15 @@ import com.allinonemanager.ui.util.DayDropdown
 import com.allinonemanager.ui.util.ExpiryDate
 import com.allinonemanager.ui.util.HomeBackButtons
 import com.allinonemanager.ui.util.TopWaveShape
-import com.allinonemanager.ui.util.nextDateLabel
+import com.allinonemanager.ui.util.currentCycleLabels
 import com.allinonemanager.ui.util.ordinalDay
 import kotlinx.coroutines.delay
 
 private val FigmaYellow4 = Color(0xFFFFC200)
 private val CardYellowDark = Color(0xFFF59E0B)
 private val PanelGray = Color(0xFFF6F6F6)
+private val WarnOrange = Color(0xFFEF6C00)
+private val DangerRed = Color(0xFFD32F2F)
 private const val REVEAL_MILLIS = 30_000L
 
 @Composable
@@ -102,8 +111,16 @@ fun CreditCardDetails(
     onSaveClick: (AddCreditCardRequest) -> Unit = {},
     isSaving: Boolean = false,
     serverError: String? = null,
+    // Number of dues the card has; null while loading. Cards with dues cannot be deleted.
+    dueCount: Int? = null,
+    onActiveChange: (isActive: Boolean) -> Unit = {},
+    onDeleteClick: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
+    // Deactivate / Delete waiting for the user's confirmation; null = no dialog
+    var confirm by remember(card) { mutableStateOf<CardAction?>(null) }
+    var menuOpen by remember { mutableStateOf(false) }
+
     // Full number / CVV are hidden again after 30s, and whenever the screen is left
     var showNumber by remember(card) { mutableStateOf(false) }
     var showCvv by remember(card) { mutableStateOf(false) }
@@ -210,7 +227,7 @@ fun CreditCardDetails(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text(
-                                text = "CREDIT CARD DETAILS",
+                                text = "CARD DETAILS",        // short, so title and three actions fit one line
                                 fontSize = 16.sp,
                                 fontWeight = FontWeight.ExtraBold,
                                 color = FigmaYellow4,
@@ -218,8 +235,8 @@ fun CreditCardDetails(
                                 softWrap = false,
                                 modifier = Modifier.weight(1f)
                             )
-                            // Icon only, so the title fits on one line
-                            OutlinedIconButton(
+                            // Icon only, so the title fits on one line. Inactive cards are not edited.
+                            if (card.active) OutlinedIconButton(
                                 onClick = onEditClick,
                                 border = BorderStroke(1.5.dp, FigmaYellow4),
                                 modifier = Modifier.size(32.dp)
@@ -238,6 +255,44 @@ fun CreditCardDetails(
                                 modifier = Modifier.height(32.dp)
                             ) {
                                 Text("Dues", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = White)
+                            }
+                            // Rarely used, risky actions: behind a menu so they are not tapped by mistake
+                            Box {
+                                IconButton(
+                                    onClick = { menuOpen = true },
+                                    enabled = !isSaving,
+                                    modifier = Modifier.size(32.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.MoreVert,
+                                        contentDescription = "More card actions",
+                                        tint = Color.DarkGray
+                                    )
+                                }
+                                DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                                    DropdownMenuItem(
+                                        text = { Text(if (card.active) "Deactivate card" else "Reactivate card", fontSize = 14.sp) },
+                                        leadingIcon = {
+                                            Icon(
+                                                imageVector = if (card.active) Icons.Default.Block else Icons.Default.Restore,
+                                                contentDescription = null,
+                                                tint = if (card.active) WarnOrange else Color.DarkGray
+                                            )
+                                        },
+                                        onClick = {
+                                            menuOpen = false
+                                            if (card.active) confirm = CardAction.Deactivate else onActiveChange(true)
+                                        }
+                                    )
+                                    DropdownMenuItem(
+                                        text = { Text("Delete card", fontSize = 14.sp, color = DangerRed) },
+                                        leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null, tint = DangerRed) },
+                                        onClick = {
+                                            menuOpen = false
+                                            confirm = CardAction.Delete
+                                        }
+                                    )
+                                }
                             }
                         }
                     } else {
@@ -309,6 +364,39 @@ fun CreditCardDetails(
 
                     } else {
 
+                    // Deactivate / Reactivate / Delete failures
+                    serverError?.let {
+                        Text(it, color = Color.Red, fontSize = 14.sp, modifier = Modifier.padding(bottom = 12.dp))
+                    }
+
+                    if (!card.active) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(PanelGray, RoundedCornerShape(12.dp))
+                                .padding(start = 14.dp, end = 8.dp, top = 6.dp, bottom = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "This card is inactive",
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.DarkGray,
+                                modifier = Modifier.weight(1f)
+                            )
+                            Button(
+                                onClick = { onActiveChange(true) },
+                                enabled = !isSaving,
+                                colors = ButtonDefaults.buttonColors(containerColor = FigmaYellow4),
+                                contentPadding = PaddingValues(horizontal = 12.dp),
+                                modifier = Modifier.height(32.dp)
+                            ) {
+                                Text("Reactivate", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = White)
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(16.dp))
+                    }
+
                     // ---------- Card preview ----------
                     CardPreview(
                         card = card,
@@ -327,18 +415,19 @@ fun CreditCardDetails(
                         verticalArrangement = Arrangement.spacedBy(14.dp)
                     ) {
                         DetailRow("Limit", formatLimit(card.ccLimit.orEmpty()), "Card Name", card.ccName.orEmpty())
-                        // Stored as a day of the month; shown with the next date it falls on
+                        // Stored as a day of the month; shown with the current bill cycle's dates
+                        val (cycleStatement, cycleDue) = currentCycleLabels(card.statementDate, card.dueDate)
                         Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                             DetailItem(
                                 label = "Statement Date",
                                 value = monthlyDay(card.statementDate),
-                                note = "Next: ${nextDateLabel(card.statementDate)}",
+                                note = "This cycle: $cycleStatement",
                                 modifier = Modifier.weight(1f)
                             )
                             DetailItem(
                                 label = "Due Date",
                                 value = monthlyDay(card.dueDate),
-                                note = "Next: ${nextDateLabel(card.dueDate)}",
+                                note = "This cycle: $cycleDue",
                                 modifier = Modifier.weight(1f)
                             )
                         }
@@ -368,6 +457,72 @@ fun CreditCardDetails(
             modifier = Modifier.align(Alignment.BottomStart)
         )
     }
+
+    if (card != null) confirm?.let { action ->
+        CardActionDialog(
+            action = action,
+            card = card,
+            dueCount = dueCount,
+            onDismiss = { confirm = null },
+            onDeactivate = {
+                confirm = null
+                onActiveChange(false)
+            },
+            onDelete = {
+                confirm = null
+                onDeleteClick()
+            }
+        )
+    }
+}
+
+private enum class CardAction { Deactivate, Delete }
+
+/** Confirms Deactivate / Delete. Delete is refused for a card with dues and offers Deactivate instead. */
+@Composable
+private fun CardActionDialog(
+    action: CardAction,
+    card: CreditCard,
+    dueCount: Int?,
+    onDismiss: () -> Unit,
+    onDeactivate: () -> Unit,
+    onDelete: () -> Unit
+) {
+    val name = "${card.ccBank.orEmpty()} ${card.maskedNumber}".trim()
+    // Cards with dues are never deleted, so the payment history stays complete
+    val blocked = action == CardAction.Delete && (dueCount ?: 0) > 0
+    val (title, text) = when {
+        action == CardAction.Deactivate -> "Deactivate card?" to
+            "Deactivate $name? It moves to Inactive cards and stops counting in Total Limit. " +
+            "Its dues stay saved. You can reactivate it anytime."
+        dueCount == null -> "Delete card?" to "Checking this card's dues..."
+        blocked -> "Can't delete this card" to
+            "$name has $dueCount ${if (dueCount == 1) "due" else "dues"}. Cards with dues can't be deleted, " +
+            "so your history stays complete." + if (card.active) " Deactivate it instead." else ""
+        else -> "Delete card?" to "Delete $name permanently? This can't be undone."
+    }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(title, fontSize = 18.sp, fontWeight = FontWeight.Bold) },
+        text = { Text(text, fontSize = 14.sp) },
+        confirmButton = {
+            when {
+                action == CardAction.Deactivate || (blocked && card.active) ->
+                    TextButton(onClick = onDeactivate) {
+                        Text("Deactivate", color = WarnOrange, fontWeight = FontWeight.Bold)
+                    }
+                dueCount == 0 ->
+                    TextButton(onClick = onDelete) {
+                        Text("Delete", color = DangerRed, fontWeight = FontWeight.Bold)
+                    }
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(if (blocked && !card.active) "OK" else "Cancel", color = Color.Gray)
+            }
+        }
+    )
 }
 
 /** Yellow credit-card-shaped summary: bank, type, number (with reveal), name and expiry. */

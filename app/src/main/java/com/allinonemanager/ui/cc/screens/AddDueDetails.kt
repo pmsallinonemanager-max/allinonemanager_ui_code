@@ -37,6 +37,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -62,10 +63,19 @@ import com.allinonemanager.ui.user.screens.White
 import com.allinonemanager.ui.util.BOTTOM_BAR_HEIGHT
 import com.allinonemanager.ui.util.HomeBackButtons
 import com.allinonemanager.ui.util.TopWaveShape
+import com.allinonemanager.ui.util.currentCycleDates
+import com.allinonemanager.ui.util.monthLabel
+import com.allinonemanager.ui.util.nextStatementLabel
+import com.allinonemanager.ui.util.readableDate
+import com.allinonemanager.ui.cc.screens.dto.DueDetail
+import androidx.compose.foundation.clickable
+import java.text.NumberFormat
 import java.text.SimpleDateFormat
 import java.util.Locale
 
 private val FigmaYellow4 = Color(0xFFFFC200)
+private val BlockRed = Color(0xFFD32F2F)
+private val WarnOrange = Color(0xFFEF6C00)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -76,6 +86,11 @@ fun AddDueDetails(
     onAccountClick: () -> Unit = {},
     onBackClick: () -> Unit = {},
     cards: List<CreditCard> = emptyList(),
+    // Card to start with, when opened from that card's Dues page; null = user picks
+    preselectedCcId: Int? = null,
+    // The user's saved dues: blocks a second bill for the same month and flags unpaid older bills
+    dues: List<DueDetail> = emptyList(),
+    onViewDuesClick: (ccId: Int) -> Unit = {},
     onSaveClick: (AddDueDetailsRequest) -> Unit = {},
     isSaving: Boolean = false,
     serverError: String? = null,
@@ -95,6 +110,32 @@ fun AddDueDetails(
     var minimumDue by remember { mutableStateOf("") }
     var totalOutStanding by remember { mutableStateOf("") }
     val scrollState = rememberScrollState()
+
+    // Cards load after the screen opens, so pick the preselected one once they arrive
+    LaunchedEffect(cards) {
+        if (preselectedCcId != null && selectedCard == null) {
+            cards.find { it.ccId == preselectedCcId }?.let {
+                selectedCard = it
+                ccBank = it.ccBank.orEmpty()
+            }
+        }
+    }
+
+    // Statement month typed so far ("2026-10"), compared with the card's saved dues
+    val cardDues = selectedCard?.ccId?.let { id -> dues.filter { it.ccId == id } }.orEmpty()
+    val stmtMonth = stmtDate.takeIf { it.length >= 6 }?.let { "${it.take(4)}-${it.substring(4, 6)}" }
+    val sameMonthDue = stmtMonth?.let { month -> cardDues.find { it.statementDate?.take(7) == month } }
+    val olderUnpaid = if (stmtMonth == null) emptyList() else
+        cardDues.filter { it.isPaid != true && it.statementDate.orEmpty().take(7) < stmtMonth }
+
+    // Picking a card fills in its current bill cycle; the dates can still be edited
+    LaunchedEffect(selectedCard) {
+        val card = selectedCard ?: return@LaunchedEffect
+        val (statement, due) = currentCycleDates(card.statementDate, card.dueDate)
+        val digits = SimpleDateFormat("yyyyMMdd", Locale.US)      // fields hold digits only
+        statement?.let { stmtDate = digits.format(it.time) }
+        due?.let { dueDate = digits.format(it.time) }
+    }
 
     Box(
         modifier = modifier
@@ -315,6 +356,25 @@ fun AddDueDetails(
                 )
 
             }
+            if (sameMonthDue != null) {
+                val next = nextStatementLabel(selectedCard?.statementDate)?.let { " Next statement on $it." }.orEmpty()
+                FormNote(
+                    text = "${monthLabel(sameMonthDue.statementDate)} bill for this card is already added.$next",
+                    color = BlockRed,
+                    onViewDues = { sameMonthDue.ccId?.let(onViewDuesClick) }
+                )
+            } else if (olderUnpaid.isNotEmpty()) {
+                val text = olderUnpaid.singleOrNull()?.let {
+                    "${monthLabel(it.statementDate)} bill ${rupees(it.dueAmt)} (due ${readableDate(it.dueDate)}) " +
+                        "is still unpaid. If you paid it, mark it paid in Dues."
+                } ?: ("${olderUnpaid.size} earlier bills (${rupees(olderUnpaid.sumOf { it.dueAmt ?: 0.0 })}) " +
+                    "are still unpaid. If you paid them, mark them paid in Dues.")
+                FormNote(
+                    text = text,
+                    color = WarnOrange,
+                    onViewDues = { selectedCard?.ccId?.let(onViewDuesClick) }
+                )
+            }
             Spacer(modifier = Modifier.height(10.dp))
             LabelPair("Due Amount:", "Minimum Due:", gap = 30.dp)
             Spacer(modifier = Modifier.height(3.dp))
@@ -434,7 +494,7 @@ fun AddDueDetails(
                             )
                         }
                     },
-                    enabled = !isSaving,
+                    enabled = !isSaving && sameMonthDue == null,     // one bill per card per month
                     modifier = Modifier
                         .width(100.dp)) {
                     Text(
@@ -468,6 +528,33 @@ fun AddDueDetails(
 
     }
 }
+
+// Coloured note under the dates with a "View dues" link to the card's Dues page
+@Composable
+private fun FormNote(text: String, color: Color, onViewDues: () -> Unit) {
+    Column(
+        modifier = Modifier
+            .padding(start = 30.dp, end = 30.dp, top = 10.dp)
+            .fillMaxWidth()
+            .background(color.copy(alpha = 0.08f), RoundedCornerShape(12.dp))
+            .padding(horizontal = 12.dp, vertical = 8.dp)
+    ) {
+        Text(text, fontSize = 13.sp, color = color)
+        Text(
+            text = "View dues",
+            fontSize = 13.sp,
+            fontWeight = FontWeight.Bold,
+            color = color,
+            modifier = Modifier
+                .padding(top = 4.dp)
+                .clickable(onClick = onViewDues)
+        )
+    }
+}
+
+// 12000.0 -> "₹12,000"
+private fun rupees(amount: Double?): String =
+    "₹" + NumberFormat.getNumberInstance(Locale.forLanguageTag("en-IN")).format(amount ?: 0.0)
 
 private fun cardLabel(card: CreditCard): String =
     listOfNotNull(card.ccName?.takeIf { it.isNotBlank() }, card.maskedNumber).joinToString(" ")
