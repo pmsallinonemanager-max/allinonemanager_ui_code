@@ -9,6 +9,7 @@ import com.allinonemanager.ui.cc.screens.dto.AddCreditCardRequest
 import com.allinonemanager.ui.cc.screens.dto.AddDueDetailsRequest
 import com.allinonemanager.ui.cc.screens.dto.CreditCard
 import com.allinonemanager.ui.cc.screens.dto.DueDetail
+import com.allinonemanager.ui.cc.screens.dto.UpdateCardStatusRequest
 import com.allinonemanager.ui.cc.screens.dto.UpdateCreditCardRequest
 import com.allinonemanager.ui.cc.screens.dto.UpdateDueDetailsRequest
 import com.allinonemanager.ui.cc.screens.dto.UpdateDueStatusRequest
@@ -130,6 +131,29 @@ class CreditCardViewModel(
         save({ it == DUE_STATUS_UPDATED }) { creditCardApi.updateDueStatus(UpdateDueStatusRequest(ccDueId, isPaid)) }
     }
 
+    fun deleteDue(ccDueId: Int, ccId: Int) {
+        save({ it == DUE_DELETED }) { creditCardApi.deleteDueDetails(ccDueId, ccId) }
+    }
+
+    // false = deactivate, true = reactivate
+    fun setCardActive(ccId: Int, isActive: Boolean) {
+        val userId = UserSession.userId ?: run {
+            _saveState.value = SaveUiState.Error(NOT_LOGGED_IN)
+            return
+        }
+        save({ it == CARD_STATUS_UPDATED }) {
+            creditCardApi.updateCardStatus(UpdateCardStatusRequest(ccId, userId, isActive))
+        }
+    }
+
+    fun deleteCard(ccId: Int) {
+        val userId = UserSession.userId ?: run {
+            _saveState.value = SaveUiState.Error(NOT_LOGGED_IN)
+            return
+        }
+        save({ it == CARD_DELETED }) { creditCardApi.deleteCreditCard(ccId, userId) }
+    }
+
     fun resetSaveState() {
         _saveState.value = SaveUiState.Idle
     }
@@ -155,11 +179,15 @@ class CreditCardViewModel(
         }
     }
 
-    private companion object {
-        const val NOT_LOGGED_IN = "Session expired. Please logout and login again."
-        const val CARD_ADDED = "Credit card added successfully."
-        const val DUE_ADDED = "Due details added successfully."
-        const val DUE_UPDATED = "Due details updated successfully."
-        const val DUE_STATUS_UPDATED = "Due status updated successfully."
+    companion object {
+        // Public: the Details screen leaves the page when it sees this
+        const val CARD_DELETED = "Credit card deleted successfully."
+        private const val CARD_STATUS_UPDATED = "Credit card status updated successfully."
+        private const val NOT_LOGGED_IN = "Session expired. Please logout and login again."
+        private const val CARD_ADDED = "Credit card added successfully."
+        private const val DUE_ADDED = "Due details added successfully."
+        private const val DUE_UPDATED = "Due details updated successfully."
+        private const val DUE_STATUS_UPDATED = "Due status updated successfully."
+        private const val DUE_DELETED = "Due details deleted successfully."
     }
 }
