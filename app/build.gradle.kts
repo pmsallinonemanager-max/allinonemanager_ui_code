@@ -47,12 +47,14 @@ android {
         }
         create("prod") {
             dimension = "env"
-            buildConfigField("String", "BASE_URL", baseUrlFor("prod", "https://api.example.com/aiom/"))
+            buildConfigField("String", "BASE_URL", baseUrlFor("prod", "https://app.pms-infra.com/aiom/"))
         }
     }
 
     buildTypes {
         release {
+            // TODO: switch to a real release keystore before publishing to the Play Store
+            signingConfig = signingConfigs.getByName("debug")
             optimization {
                 enable = false
             }
